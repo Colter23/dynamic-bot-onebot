@@ -1,0 +1,9 @@
+id: onebot-subscriber
+name: OneBot Subscriber Plugin
+version: 0.0.1
+mainClass: top.colter.dynamic.onebot.OneBotSubscriberPlugin
+capabilities:
+  - MESSAGE_SINK
+apiVersion: 2.0.0
+description: OneBot subscriber plugin for dynamic-bot.
+author: dynamic-bot
