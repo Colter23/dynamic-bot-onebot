@@ -1,9 +1,9 @@
-id: onebot-subscriber
-name: OneBot Subscriber Plugin
+id: onebot-gateway
+name: OneBot Gateway Plugin
 version: 0.0.1
-mainClass: top.colter.dynamic.onebot.OneBotSubscriberPlugin
+mainClass: top.colter.dynamic.onebot.OneBotGatewayPlugin
 capabilities:
   - MESSAGE_SINK
 apiVersion: 2.0.0
-description: OneBot subscriber plugin for dynamic-bot.
+description: OneBot gateway plugin with forward and reverse WebSocket transports.
 author: dynamic-bot

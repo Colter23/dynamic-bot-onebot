@@ -10,7 +10,7 @@ class OneBotCommandMapperTest {
     @Test
     fun `should map group command input`() {
         val event = OneBotCommandMapper.toCommandEvent(
-            sourcePlugin = "onebot-subscriber",
+            sourcePlugin = ONEBOT_PLUGIN_ID,
             incoming = OneBotIncomingMessage(
                 chatType = OneBotChatType.GROUP,
                 chatId = "12345",
@@ -20,7 +20,7 @@ class OneBotCommandMapperTest {
         )
 
         requireNotNull(event)
-        assertEquals("onebot-subscriber", event.sourcePlugin)
+        assertEquals(ONEBOT_PLUGIN_ID, event.sourcePlugin)
         assertEquals("onebot", event.context.platform)
         assertEquals(ChatType.GROUP, event.context.chatType)
         assertEquals("12345", event.context.chatId)
@@ -31,7 +31,7 @@ class OneBotCommandMapperTest {
     @Test
     fun `should pass non command text to central command parser`() {
         val event = OneBotCommandMapper.toCommandEvent(
-            sourcePlugin = "onebot-subscriber",
+            sourcePlugin = ONEBOT_PLUGIN_ID,
             incoming = OneBotIncomingMessage(
                 chatType = OneBotChatType.PRIVATE,
                 chatId = "11",
@@ -48,7 +48,7 @@ class OneBotCommandMapperTest {
     @Test
     fun `should ignore blank text`() {
         val event = OneBotCommandMapper.toCommandEvent(
-            sourcePlugin = "onebot-subscriber",
+            sourcePlugin = ONEBOT_PLUGIN_ID,
             incoming = OneBotIncomingMessage(
                 chatType = OneBotChatType.PRIVATE,
                 chatId = "11",

@@ -17,9 +17,10 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0")
 
     implementation("cn.evole.onebot:OneBot-Client:0.4.3")
+    implementation("io.github.oshai:kotlin-logging-jvm:7.0.0")
     implementation("org.apache.logging.log4j:log4j-api:2.19.0")
-    runtimeOnly("org.apache.logging.log4j:log4j-core:2.19.0")
-    implementation("com.google.code.gson:gson:2.8.6")
+    runtimeOnly("org.apache.logging.log4j:log4j-core:2.25.4")
+    implementation("com.google.code.gson:gson:2.8.9")
 
     implementation("com.fasterxml.jackson.core:jackson-databind:2.20.0")
     implementation("com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.20.0")
