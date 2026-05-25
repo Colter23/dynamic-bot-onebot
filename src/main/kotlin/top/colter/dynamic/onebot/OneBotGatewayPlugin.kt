@@ -4,10 +4,12 @@ import kotlinx.coroutines.runBlocking
 import top.colter.dynamic.core.config.DefaultConfigService
 import top.colter.dynamic.core.config.loadOrCreate
 import top.colter.dynamic.core.data.ChatType
+import top.colter.dynamic.core.data.MessageTarget
 import top.colter.dynamic.core.event.CommandResultEvent
 import top.colter.dynamic.core.event.MessageEvent
 import top.colter.dynamic.core.event.broadcast
 import top.colter.dynamic.core.plugin.MessageSinkPlugin
+import top.colter.dynamic.core.repository.MessageDeliveryRepository
 import top.colter.dynamic.core.tools.logger
 
 public class OneBotGatewayPlugin : MessageSinkPlugin {
@@ -62,23 +64,28 @@ public class OneBotGatewayPlugin : MessageSinkPlugin {
         val message = event.message
         val payload = OneBotMessageMapper.toArrayMessage(message)
 
-        message.subscriber.forEach { subscriber ->
-            when (val target = OneBotTarget.fromSubscriber(subscriber)) {
-                is OneBotTarget.Group -> sendMessage(
-                    eventId = message.id,
-                    targetId = subscriber.userId,
-                    action = { gateway.sendGroupMessage(target.groupId, payload) },
-                )
-                is OneBotTarget.User -> sendMessage(
-                    eventId = message.id,
-                    targetId = subscriber.userId,
-                    action = { gateway.sendPrivateMessage(target.userId, payload) },
-                )
-                is OneBotTarget.Unsupported -> logger.warn {
-                    "pluginId=$ONEBOT_PLUGIN_ID eventId=${message.id} targetId=${subscriber.userId} action=route result=skipped reason=${target.reason}"
+        message.targets
+            .filter { it.platformId == ONEBOT_PLUGIN_ID || it.platformId == "onebot" }
+            .forEach { messageTarget ->
+                when (val target = OneBotTarget.fromMessageTarget(messageTarget)) {
+                    is OneBotTarget.Group -> sendMessage(
+                        eventId = message.id,
+                        target = messageTarget,
+                        action = { gateway.sendGroupMessage(target.groupId, payload) },
+                    )
+                    is OneBotTarget.User -> sendMessage(
+                        eventId = message.id,
+                        target = messageTarget,
+                        action = { gateway.sendPrivateMessage(target.userId, payload) },
+                    )
+                    is OneBotTarget.Unsupported -> {
+                        MessageDeliveryRepository.markFailed(message.id, messageTarget, target.reason)
+                        logger.warn {
+                            "pluginId=$ONEBOT_PLUGIN_ID eventId=${message.id} targetId=${messageTarget.targetId} action=route result=skipped reason=${target.reason}"
+                        }
+                    }
                 }
             }
-        }
     }
 
     override suspend fun onCommandResult(event: CommandResultEvent) {
@@ -89,6 +96,9 @@ public class OneBotGatewayPlugin : MessageSinkPlugin {
             when (event.target.chatType) {
                 ChatType.GROUP -> gateway.sendGroupMessage(event.target.chatId.toLong(), payload)
                 ChatType.PRIVATE -> gateway.sendPrivateMessage(event.target.chatId.toLong(), payload)
+                ChatType.CHANNEL -> logger.warn {
+                    "pluginId=$ONEBOT_PLUGIN_ID traceId=${event.inReplyTo} action=send_command_result result=skipped reason=unsupported_channel target=${event.target.chatId}"
+                }
             }
         }.onFailure {
             logger.warn(it) {
@@ -97,11 +107,13 @@ public class OneBotGatewayPlugin : MessageSinkPlugin {
         }
     }
 
-    private suspend fun sendMessage(eventId: Long, targetId: String, action: suspend () -> Unit) {
+    private suspend fun sendMessage(eventId: Long, target: MessageTarget, action: suspend () -> Unit) {
         runCatching { action() }
+            .onSuccess { MessageDeliveryRepository.markSent(eventId, target) }
             .onFailure {
+                MessageDeliveryRepository.markFailed(eventId, target, it.message)
                 logger.warn(it) {
-                    "pluginId=$ONEBOT_PLUGIN_ID eventId=$eventId targetId=$targetId action=send result=failed error=${it.message}"
+                    "pluginId=$ONEBOT_PLUGIN_ID eventId=$eventId targetId=${target.targetId} action=send result=failed error=${it.message}"
                 }
             }
     }

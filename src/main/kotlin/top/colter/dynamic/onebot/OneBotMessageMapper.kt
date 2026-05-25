@@ -28,33 +28,33 @@ public object OneBotMessageMapper {
         val result = mutableListOf<ArrayMsg>()
         content.forEach { item ->
             when (item) {
-                is MessageContent.Text -> result.addText(item.text)
-                is MessageContent.At -> {
-                    result.addText(item.text)
+                is MessageContent.Text -> result.addText(item.fallbackText)
+                is MessageContent.Mention -> {
+                    result.addText(item.fallbackText)
                     result += segment(MsgType.at, "qq" to item.targetId)
                 }
-                is MessageContent.AtAll -> {
-                    result.addText(item.text)
+                is MessageContent.MentionAll -> {
+                    result.addText(item.fallbackText)
                     result += segment(MsgType.at, "qq" to "all")
                 }
                 is MessageContent.Image -> {
-                    result += segment(MsgType.image, "file" to item.image.url)
-                    result.addText(item.text)
+                    result += segment(MsgType.image, "file" to item.image.uri)
+                    result.addText(item.fallbackText)
                 }
                 is MessageContent.Video -> {
-                    result += segment(MsgType.video, "file" to item.videoPath)
-                    result.addText(item.text)
+                    result += segment(MsgType.video, "file" to item.videoUri)
+                    result.addText(item.fallbackText)
                 }
                 is MessageContent.Audio -> {
-                    result += segment(MsgType.record, "file" to item.audioPath)
-                    result.addText(item.text)
+                    result += segment(MsgType.record, "file" to item.audioUri)
+                    result.addText(item.fallbackText)
                 }
                 is MessageContent.Reply -> {
                     result += segment(MsgType.reply, "id" to item.messageId)
-                    result.addText(item.text)
+                    result.addText(item.fallbackText)
                 }
                 is MessageContent.Forward -> {
-                    result.addText(item.text.ifBlank { "[forward messages: ${item.messages.size}]" })
+                    result.addText(item.fallbackText.ifBlank { "[forward messages: ${item.messages.size}]" })
                 }
             }
         }
