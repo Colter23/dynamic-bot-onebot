@@ -5,7 +5,7 @@ import top.colter.dynamic.core.data.LazyImage
 import top.colter.dynamic.core.data.Message
 import top.colter.dynamic.core.data.MessageChain
 import top.colter.dynamic.core.data.MessageContent
-import top.colter.dynamic.core.data.Subscriber
+import top.colter.dynamic.core.data.MessageTarget
 import top.colter.dynamic.core.data.SubscriberType
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -15,25 +15,25 @@ class OneBotMessageMapperTest {
 
     @Test
     fun `route group message`() {
-        val route = OneBotTarget.fromSubscriber(demoSubscriber(type = SubscriberType.GROUP, userId = "123456"))
+        val route = OneBotTarget.fromMessageTarget(demoTarget(type = SubscriberType.GROUP, targetId = "123456"))
         assertEquals(OneBotTarget.Group(123456), route)
     }
 
     @Test
     fun `route user message`() {
-        val route = OneBotTarget.fromSubscriber(demoSubscriber(type = SubscriberType.USER, userId = "654321"))
+        val route = OneBotTarget.fromMessageTarget(demoTarget(type = SubscriberType.USER, targetId = "654321"))
         assertEquals(OneBotTarget.User(654321), route)
     }
 
     @Test
     fun `unsupported route for invalid target`() {
-        val route = OneBotTarget.fromSubscriber(demoSubscriber(type = SubscriberType.GROUP, userId = ""))
+        val route = OneBotTarget.fromMessageTarget(demoTarget(type = SubscriberType.GROUP, targetId = ""))
         assertTrue(route is OneBotTarget.Unsupported)
     }
 
     @Test
     fun `unsupported route for channel target`() {
-        val route = OneBotTarget.fromSubscriber(demoSubscriber(type = SubscriberType.CHANNEL, userId = "123456"))
+        val route = OneBotTarget.fromMessageTarget(demoTarget(type = SubscriberType.CHANNEL, targetId = "123456"))
         assertTrue(route is OneBotTarget.Unsupported)
     }
 
@@ -41,7 +41,7 @@ class OneBotMessageMapperTest {
     fun `format image and text as array message`() {
         val message = demoMessage(
             listOf(
-                MessageContent.Image(text = "", image = LazyImage("https://example.com/a.png")),
+                MessageContent.Image(fallbackText = "", image = LazyImage("https://example.com/a.png")),
                 MessageContent.Text("测试动态"),
             )
         )
@@ -58,8 +58,8 @@ class OneBotMessageMapperTest {
     fun `format at and at all as onebot at segments`() {
         val message = demoMessage(
             listOf(
-                MessageContent.At(text = "hi ", targetId = "10001"),
-                MessageContent.AtAll(text = ""),
+                MessageContent.Mention(fallbackText = "hi ", targetId = "10001"),
+                MessageContent.MentionAll(fallbackText = ""),
             )
         )
 
@@ -86,21 +86,16 @@ class OneBotMessageMapperTest {
         return Message(
             id = 1,
             time = 1710000000,
-            subscriber = listOf(demoSubscriber(SubscriberType.GROUP, "123456")),
+            targets = listOf(demoTarget(SubscriberType.GROUP, "123456")),
             chain = listOf(MessageChain(content = contents)),
         )
     }
 
-    private fun demoSubscriber(type: SubscriberType, userId: String): Subscriber {
-        return Subscriber(
-            id = 1,
-            platform = "onebot",
+    private fun demoTarget(type: SubscriberType, targetId: String): MessageTarget {
+        return MessageTarget(
+            platformId = "onebot",
             type = type,
-            userId = userId,
-            name = "demo",
-            state = 1,
-            createTime = 0,
-            createUser = 0,
+            targetId = targetId,
         )
     }
 }
