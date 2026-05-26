@@ -1,6 +1,8 @@
 package top.colter.dynamic.onebot
 
 import kotlinx.coroutines.runBlocking
+import top.colter.dynamic.core.config.ConfigApplyResult
+import top.colter.dynamic.core.config.ConfigurablePlugin
 import top.colter.dynamic.core.config.DefaultConfigService
 import top.colter.dynamic.core.config.loadOrCreate
 import top.colter.dynamic.core.data.ChatType
@@ -12,11 +14,17 @@ import top.colter.dynamic.core.plugin.MessageSinkPlugin
 import top.colter.dynamic.core.repository.MessageDeliveryRepository
 import top.colter.dynamic.core.tools.logger
 
-public class OneBotGatewayPlugin : MessageSinkPlugin {
+public class OneBotGatewayPlugin : MessageSinkPlugin, ConfigurablePlugin<OneBotConfig> {
 
     private var config: OneBotConfig = OneBotConfig()
     private var gateway: OneBotGateway = NoopOneBotGateway()
     private var running: Boolean = false
+
+    override val configId: String = ONEBOT_PLUGIN_ID
+    override val configName: String = "OneBot 网关"
+    override val configDescription: String = "OneBot 连接与消息投递配置。"
+    override val configClass = OneBotConfig::class
+    override val configFormSpec = OneBotConfigForm.spec
 
     override fun init() {
         config = DefaultConfigService.loadOrCreate(ONEBOT_PLUGIN_ID) { OneBotConfig() }
@@ -56,6 +64,24 @@ public class OneBotGatewayPlugin : MessageSinkPlugin {
 
     override fun cleanup() {
         logger.info { "pluginId=$ONEBOT_PLUGIN_ID action=cleanup" }
+    }
+
+    override fun currentConfig(): OneBotConfig = config
+
+    override fun applyConfig(next: OneBotConfig): ConfigApplyResult {
+        OneBotConfigForm.validate(next)
+        val changed = next != config
+        config = next
+        return ConfigApplyResult(
+            changed = changed,
+            restartRequired = changed,
+            restartTargets = if (changed) listOf("OneBot 插件") else emptyList(),
+            message = if (changed) {
+                "OneBot 配置已保存；需要重启 OneBot 插件以重新连接"
+            } else {
+                "OneBot 配置未变化"
+            },
+        )
     }
 
     override suspend fun onMessage(event: MessageEvent) {
