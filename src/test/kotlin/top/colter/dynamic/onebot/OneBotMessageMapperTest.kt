@@ -82,6 +82,20 @@ class OneBotMessageMapperTest {
         assertEquals("(empty)", segments.single().data["text"])
     }
 
+    @Test
+    fun `format multiple chains as separate array messages`() {
+        val messages = OneBotMessageMapper.toArrayMessages(
+            listOf(
+                MessageChain(listOf(MessageContent.Text("first"))),
+                MessageChain(listOf(MessageContent.Text("second"))),
+            )
+        )
+
+        assertEquals(2, messages.size)
+        assertEquals("first", messages[0].single().data["text"])
+        assertEquals("second", messages[1].single().data["text"])
+    }
+
     private fun demoMessage(contents: List<MessageContent>): Message {
         return Message(
             id = 1,

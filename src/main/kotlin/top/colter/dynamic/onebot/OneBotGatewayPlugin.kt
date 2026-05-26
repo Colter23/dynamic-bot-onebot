@@ -62,7 +62,7 @@ public class OneBotGatewayPlugin : MessageSinkPlugin {
         if (!running) return
 
         val message = event.message
-        val payload = OneBotMessageMapper.toArrayMessage(message)
+        val payloads = OneBotMessageMapper.toArrayMessages(message)
 
         message.targets
             .filter { it.platformId == ONEBOT_PLUGIN_ID || it.platformId == "onebot" }
@@ -71,12 +71,20 @@ public class OneBotGatewayPlugin : MessageSinkPlugin {
                     is OneBotTarget.Group -> sendMessage(
                         eventId = message.id,
                         target = messageTarget,
-                        action = { gateway.sendGroupMessage(target.groupId, payload) },
+                        action = {
+                            payloads.forEach { payload ->
+                                gateway.sendGroupMessage(target.groupId, payload)
+                            }
+                        },
                     )
                     is OneBotTarget.User -> sendMessage(
                         eventId = message.id,
                         target = messageTarget,
-                        action = { gateway.sendPrivateMessage(target.userId, payload) },
+                        action = {
+                            payloads.forEach { payload ->
+                                gateway.sendPrivateMessage(target.userId, payload)
+                            }
+                        },
                     )
                     is OneBotTarget.Unsupported -> {
                         MessageDeliveryRepository.markFailed(message.id, messageTarget, target.reason)

@@ -11,11 +11,20 @@ public object OneBotMessageMapper {
         return toArrayMessage(message.chain)
     }
 
+    public fun toArrayMessages(message: Message): List<List<ArrayMsg>> {
+        return toArrayMessages(message.chain)
+    }
+
+    public fun toArrayMessages(chain: List<MessageChain>): List<List<ArrayMsg>> {
+        return chain
+            .map { it.toArrayMessage() }
+            .filter { it.isNotEmpty() }
+            .ifEmpty { listOf(listOf(text("(empty)"))) }
+    }
+
     public fun toArrayMessage(chain: List<MessageChain>): List<ArrayMsg> {
         val result = mutableListOf<ArrayMsg>()
-        chain.forEach { messageChain ->
-            val segments = messageChain.toArrayMessage()
-            if (segments.isEmpty()) return@forEach
+        toArrayMessages(chain).forEach { segments ->
             if (result.isNotEmpty()) {
                 result += text("\n")
             }
