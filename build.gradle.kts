@@ -13,7 +13,7 @@ repositories {
 }
 
 dependencies {
-    implementation("top.colter.dynamic:dynamic-bot-core:0.0.3")
+    implementation("top.colter.dynamic:dynamic-bot-core:0.0.4")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0")
 
     implementation("cn.evole.onebot:OneBot-Client:0.4.3")
