@@ -12,7 +12,9 @@ import top.colter.dynamic.core.event.MessageEvent
 import top.colter.dynamic.core.event.broadcast
 import top.colter.dynamic.core.plugin.MessageSinkPlugin
 import top.colter.dynamic.core.repository.MessageDeliveryRepository
-import top.colter.dynamic.core.tools.logger
+import top.colter.dynamic.core.tools.loggerFor
+
+private val logger = loggerFor<OneBotGatewayPlugin>()
 
 public class OneBotGatewayPlugin : MessageSinkPlugin, ConfigurablePlugin<OneBotConfig> {
 

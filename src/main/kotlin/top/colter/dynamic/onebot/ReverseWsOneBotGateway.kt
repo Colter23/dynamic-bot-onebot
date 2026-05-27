@@ -10,12 +10,14 @@ import cn.evole.onebot.sdk.websocket.server.WebSocketServer
 import com.google.gson.JsonArray
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import top.colter.dynamic.core.tools.logger
+import top.colter.dynamic.core.tools.loggerFor
 import java.net.InetSocketAddress
 import java.net.URI
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.atomic.AtomicReference
+
+private val logger = loggerFor<ReverseWsOneBotGateway>()
 
 internal class ReverseWsOneBotGateway(
     private val config: OneBotConfig,
