@@ -88,7 +88,7 @@ public class OneBotGatewayPlugin : MessageSinkPlugin, ConfigurablePlugin<OneBotC
         if (!running) return
 
         val message = event.message
-        val payloads = OneBotMessageMapper.toArrayMessages(message)
+        val payloads = OneBotMessageMapper.toJsonArrayMessages(message)
 
         message.targets
             .filter { it.platformId == ONEBOT_PLUGIN_ID || it.platformId == "onebot" }
@@ -125,7 +125,7 @@ public class OneBotGatewayPlugin : MessageSinkPlugin, ConfigurablePlugin<OneBotC
     override suspend fun onCommandResult(event: CommandResultEvent) {
         if (!running || event.target.platform != "onebot") return
 
-        val payload = OneBotMessageMapper.toArrayMessage(event.chain)
+        val payload = OneBotMessageMapper.toJsonArrayMessage(event.chain)
         runCatching {
             when (event.target.chatType) {
                 ChatType.GROUP -> gateway.sendGroupMessage(event.target.chatId.toLong(), payload)

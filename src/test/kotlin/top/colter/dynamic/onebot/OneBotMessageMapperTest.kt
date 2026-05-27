@@ -96,6 +96,24 @@ class OneBotMessageMapperTest {
         assertEquals("second", messages[1].single().data["text"])
     }
 
+    @Test
+    fun `format json array message for onebot json overload`() {
+        val message = demoMessage(
+            listOf(
+                MessageContent.Image(fallbackText = "", image = LazyImage("file:///tmp/draw.png")),
+                MessageContent.Text("hello"),
+            )
+        )
+
+        val payload = OneBotMessageMapper.toJsonArrayMessage(message)
+
+        assertEquals(2, payload.size())
+        assertEquals("image", payload[0].asJsonObject["type"].asString)
+        assertEquals("file:///tmp/draw.png", payload[0].asJsonObject["data"].asJsonObject["file"].asString)
+        assertEquals("text", payload[1].asJsonObject["type"].asString)
+        assertEquals("hello", payload[1].asJsonObject["data"].asJsonObject["text"].asString)
+    }
+
     private fun demoMessage(contents: List<MessageContent>): Message {
         return Message(
             id = 1,

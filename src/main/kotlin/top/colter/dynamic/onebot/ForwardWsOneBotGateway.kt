@@ -3,7 +3,7 @@ package top.colter.dynamic.onebot
 import cn.evole.onebot.client.OneBotClient
 import cn.evole.onebot.client.core.Bot
 import cn.evole.onebot.client.core.BotConfig
-import cn.evole.onebot.sdk.entity.ArrayMsg
+import com.google.gson.JsonArray
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -27,14 +27,14 @@ internal class ForwardWsOneBotGateway(
         client = OneBotClient.create(botConfig, OneBotIncomingListener(onIncomingMessage)).open()
     }
 
-    override suspend fun sendPrivateMessage(userId: Long, message: List<ArrayMsg>) {
+    override suspend fun sendPrivateMessage(userId: Long, message: JsonArray) {
         withContext(Dispatchers.IO) {
             val action = requireBot().sendPrivateMsg(userId, message, false)
             action.requireOk("send_private_msg", userId)
         }
     }
 
-    override suspend fun sendGroupMessage(groupId: Long, message: List<ArrayMsg>) {
+    override suspend fun sendGroupMessage(groupId: Long, message: JsonArray) {
         withContext(Dispatchers.IO) {
             val action = requireBot().sendGroupMsg(groupId, message, false)
             action.requireOk("send_group_msg", groupId)

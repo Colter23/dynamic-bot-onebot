@@ -4,10 +4,10 @@ import cn.evole.onebot.client.OneBotClient
 import cn.evole.onebot.client.core.Bot
 import cn.evole.onebot.client.core.BotConfig
 import cn.evole.onebot.client.utils.ConnectionUtils
-import cn.evole.onebot.sdk.entity.ArrayMsg
 import cn.evole.onebot.sdk.websocket.WebSocket
 import cn.evole.onebot.sdk.websocket.handshake.ClientHandshake
 import cn.evole.onebot.sdk.websocket.server.WebSocketServer
+import com.google.gson.JsonArray
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import top.colter.dynamic.core.tools.logger
@@ -105,14 +105,14 @@ internal class ReverseWsOneBotGateway(
         }.also { it.start() }
     }
 
-    override suspend fun sendPrivateMessage(userId: Long, message: List<ArrayMsg>) {
+    override suspend fun sendPrivateMessage(userId: Long, message: JsonArray) {
         withContext(Dispatchers.IO) {
             val action = requireBot().sendPrivateMsg(userId, message, false)
             action.requireOk("send_private_msg", userId)
         }
     }
 
-    override suspend fun sendGroupMessage(groupId: Long, message: List<ArrayMsg>) {
+    override suspend fun sendGroupMessage(groupId: Long, message: JsonArray) {
         withContext(Dispatchers.IO) {
             val action = requireBot().sendGroupMsg(groupId, message, false)
             action.requireOk("send_group_msg", groupId)

@@ -1,7 +1,7 @@
 package top.colter.dynamic.onebot
 
 import cn.evole.onebot.sdk.action.misc.ActionData
-import cn.evole.onebot.sdk.entity.ArrayMsg
+import com.google.gson.JsonArray
 
 internal const val ONEBOT_PLUGIN_ID: String = "onebot-gateway"
 
@@ -19,8 +19,8 @@ public enum class OneBotChatType {
 
 public interface OneBotGateway {
     public fun connect(onIncomingMessage: (OneBotIncomingMessage) -> Unit)
-    public suspend fun sendPrivateMessage(userId: Long, message: List<ArrayMsg>)
-    public suspend fun sendGroupMessage(groupId: Long, message: List<ArrayMsg>)
+    public suspend fun sendPrivateMessage(userId: Long, message: JsonArray)
+    public suspend fun sendGroupMessage(groupId: Long, message: JsonArray)
     public suspend fun close()
 }
 
@@ -28,10 +28,10 @@ public class NoopOneBotGateway : OneBotGateway {
     override fun connect(onIncomingMessage: (OneBotIncomingMessage) -> Unit) {
     }
 
-    override suspend fun sendPrivateMessage(userId: Long, message: List<ArrayMsg>) {
+    override suspend fun sendPrivateMessage(userId: Long, message: JsonArray) {
     }
 
-    override suspend fun sendGroupMessage(groupId: Long, message: List<ArrayMsg>) {
+    override suspend fun sendGroupMessage(groupId: Long, message: JsonArray) {
     }
 
     override suspend fun close() {

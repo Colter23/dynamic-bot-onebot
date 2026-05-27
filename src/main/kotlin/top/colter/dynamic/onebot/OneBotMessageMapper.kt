@@ -2,6 +2,8 @@ package top.colter.dynamic.onebot
 
 import cn.evole.onebot.sdk.entity.ArrayMsg
 import cn.evole.onebot.sdk.enums.MsgType
+import com.google.gson.JsonArray
+import com.google.gson.JsonObject
 import top.colter.dynamic.core.data.Message
 import top.colter.dynamic.core.data.MessageChain
 import top.colter.dynamic.core.data.MessageContent
@@ -13,6 +15,37 @@ public object OneBotMessageMapper {
 
     public fun toArrayMessages(message: Message): List<List<ArrayMsg>> {
         return toArrayMessages(message.chain)
+    }
+
+    public fun toJsonArrayMessage(message: Message): JsonArray {
+        return toJsonArray(toArrayMessage(message))
+    }
+
+    public fun toJsonArrayMessage(chain: List<MessageChain>): JsonArray {
+        return toJsonArray(toArrayMessage(chain))
+    }
+
+    public fun toJsonArrayMessages(message: Message): List<JsonArray> {
+        return toArrayMessages(message).map { toJsonArray(it) }
+    }
+
+    public fun toJsonArrayMessages(chain: List<MessageChain>): List<JsonArray> {
+        return toArrayMessages(chain).map { toJsonArray(it) }
+    }
+
+    public fun toJsonArray(message: List<ArrayMsg>): JsonArray {
+        val array = JsonArray()
+        message.forEach { segment ->
+            val item = JsonObject()
+            item.addProperty("type", segment.type.name)
+            item.add("data", JsonObject().apply {
+                segment.data.orEmpty().forEach { (key, value) ->
+                    addProperty(key, value)
+                }
+            })
+            array.add(item)
+        }
+        return array
     }
 
     public fun toArrayMessages(chain: List<MessageChain>): List<List<ArrayMsg>> {
