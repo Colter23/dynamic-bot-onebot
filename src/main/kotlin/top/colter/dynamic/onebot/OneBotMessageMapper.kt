@@ -4,6 +4,14 @@ import cn.evole.onebot.sdk.entity.ArrayMsg
 import cn.evole.onebot.sdk.enums.MsgType
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
+import java.net.URLDecoder
+import java.net.URI
+import java.nio.charset.StandardCharsets
+import java.nio.file.Files
+import java.nio.file.InvalidPathException
+import java.nio.file.Path
+import java.nio.file.Paths
+import java.util.Base64
 import top.colter.dynamic.core.data.Message
 import top.colter.dynamic.core.data.MessageChain
 import top.colter.dynamic.core.data.MessageContent
@@ -80,15 +88,15 @@ public object OneBotMessageMapper {
                     result += segment(MsgType.at, "qq" to "all")
                 }
                 is MessageContent.Image -> {
-                    result += segment(MsgType.image, "file" to item.image.uri)
+                    result += segment(MsgType.image, "file" to item.image.uri.toOneBotImageFile())
                     result.addText(item.fallbackText)
                 }
                 is MessageContent.Video -> {
-                    result += segment(MsgType.video, "file" to item.videoUri)
+                    result += segment(MsgType.video, "file" to item.videoUri.toOneBotFileUri())
                     result.addText(item.fallbackText)
                 }
                 is MessageContent.Audio -> {
-                    result += segment(MsgType.record, "file" to item.audioUri)
+                    result += segment(MsgType.record, "file" to item.audioUri.toOneBotFileUri())
                     result.addText(item.fallbackText)
                 }
                 is MessageContent.Reply -> {
@@ -116,4 +124,59 @@ public object OneBotMessageMapper {
             .setType(type)
             .setData(data.toMap())
     }
+
+    private fun String.toOneBotImageFile(): String {
+        return localReadablePath()
+            ?.takeIf { Files.isRegularFile(it) }
+            ?.let { path -> "base64://${Base64.getEncoder().encodeToString(Files.readAllBytes(path))}" }
+            ?: toOneBotFileUri()
+    }
+
+    private fun String.toOneBotFileUri(): String {
+        val value = trim()
+        if (value.isBlank()) return value
+        WINDOWS_ABSOLUTE_PATH.matchEntire(value)?.let { match ->
+            val drive = match.groupValues[1].uppercase()
+            val path = match.groupValues[2].replace('\\', '/')
+            return URI("file", "", "/$drive:/$path", null).toString()
+        }
+        if (value.startsWith("\\\\")) {
+            return value.replace('\\', '/').let { "file:$it" }
+        }
+        if (value.hasUriScheme()) return value
+        return try {
+            val path = Paths.get(value)
+            if (path.isAbsolute) path.toUri().toString() else value
+        } catch (_: InvalidPathException) {
+            value
+        }
+    }
+
+    private fun String.localReadablePath(): Path? {
+        val value = trim()
+        if (value.isBlank() || isRemoteUri()) return null
+        return try {
+            val uri = runCatching { URI(value) }.getOrNull()
+            when {
+                uri != null && uri.scheme.equals("file", ignoreCase = true) -> Paths.get(uri)
+                uri != null && uri.scheme != null -> null
+                else -> Paths.get(URLDecoder.decode(value, StandardCharsets.UTF_8))
+            }?.toAbsolutePath()?.normalize()
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun String.isRemoteUri(): Boolean {
+        return startsWith("http://", ignoreCase = true) ||
+            startsWith("https://", ignoreCase = true) ||
+            startsWith("base64://", ignoreCase = true)
+    }
+
+    private fun String.hasUriScheme(): Boolean {
+        return URI_SCHEME.matches(takeWhile { it != '/' && it != '\\' })
+    }
+
+    private val WINDOWS_ABSOLUTE_PATH: Regex = Regex("""^([a-zA-Z]):[\\/](.+)$""")
+    private val URI_SCHEME: Regex = Regex("""^[a-zA-Z][a-zA-Z0-9+.-]*:.*$""")
 }

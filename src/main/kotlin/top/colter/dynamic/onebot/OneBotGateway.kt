@@ -47,7 +47,10 @@ internal object OneBotGatewayFactory {
     }
 }
 
-internal fun ActionData<*>.requireOk(action: String, targetId: Long) {
+internal fun ActionData<*>?.requireOk(action: String, targetId: Long) {
+    if (this == null) {
+        error("action=$action targetId=$targetId status=no_response")
+    }
     if (!status.equals("ok", ignoreCase = true)) {
         error("action=$action targetId=$targetId status=$status retCode=$retCode")
     }

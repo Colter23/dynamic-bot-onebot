@@ -1,6 +1,7 @@
 package top.colter.dynamic.onebot
 
 import cn.evole.onebot.sdk.enums.MsgType
+import java.nio.file.Files
 import top.colter.dynamic.core.data.LazyImage
 import top.colter.dynamic.core.data.Message
 import top.colter.dynamic.core.data.MessageChain
@@ -112,6 +113,23 @@ class OneBotMessageMapperTest {
         assertEquals("file:///tmp/draw.png", payload[0].asJsonObject["data"].asJsonObject["file"].asString)
         assertEquals("text", payload[1].asJsonObject["type"].asString)
         assertEquals("hello", payload[1].asJsonObject["data"].asJsonObject["text"].asString)
+    }
+
+    @Test
+    fun `format local image as base64 file for remote onebot`() {
+        val image = Files.createTempFile("onebot-image", ".png")
+        try {
+            Files.write(image, byteArrayOf(1, 2, 3))
+            val message = demoMessage(
+                listOf(MessageContent.Image(fallbackText = "", image = LazyImage(image.toString())))
+            )
+
+            val payload = OneBotMessageMapper.toJsonArrayMessage(message)
+
+            assertEquals("base64://AQID", payload[0].asJsonObject["data"].asJsonObject["file"].asString)
+        } finally {
+            Files.deleteIfExists(image)
+        }
     }
 
     private fun demoMessage(contents: List<MessageContent>): Message {
