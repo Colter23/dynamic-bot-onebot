@@ -176,7 +176,7 @@ internal class ReverseWsOneBotGateway(
             .mapNotNull { part ->
                 val index = part.indexOf('=')
                 if (index <= 0) return@mapNotNull null
-                part.substring(0, index) to part.substring(index + 1)
+                part.take(index) to part.substring(index + 1)
             }
             .firstOrNull { (key, _) -> key.equals(name, ignoreCase = true) }
             ?.second
