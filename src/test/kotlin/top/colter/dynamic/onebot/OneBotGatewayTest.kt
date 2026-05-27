@@ -23,6 +23,15 @@ class OneBotGatewayTest {
     }
 
     @Test
+    fun `accept explicit no response status as sent`() {
+        val action = ActionData<Any>().apply {
+            status = "no_response"
+        }
+
+        action.requireOk("send_private_msg", 123)
+    }
+
+    @Test
     fun `reject failed action response`() {
         val action = ActionData<Any>().apply {
             status = "failed"

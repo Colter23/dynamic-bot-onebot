@@ -51,7 +51,10 @@ internal fun ActionData<*>?.requireOk(action: String, targetId: Long) {
     if (this == null) {
         return
     }
+    if (status.equals("no_response", ignoreCase = true)) {
+        return
+    }
     if (!status.equals("ok", ignoreCase = true)) {
-        error("action=$action targetId=$targetId status=$status retCode=$retCode")
+        error("OneBot 调用失败：action=$action，targetId=$targetId，status=$status，retCode=$retCode")
     }
 }

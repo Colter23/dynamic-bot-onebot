@@ -49,7 +49,7 @@ internal class ReverseWsOneBotGateway(
             override fun onOpen(conn: WebSocket, handshake: ClientHandshake) {
                 if (!isAuthorized(handshake)) {
                     logger.warn {
-                        "pluginId=$ONEBOT_PLUGIN_ID mode=REVERSE_WS action=accept result=denied remote=${conn.remoteSocketAddress}"
+                        "拒绝 OneBot 反向连接：remote=${conn.remoteSocketAddress}，原因=鉴权失败"
                     }
                     conn.close(1008, "unauthorized")
                     return
@@ -58,7 +58,7 @@ internal class ReverseWsOneBotGateway(
                 val selfId = ConnectionUtils.parseSelfId(handshake)
                 if (config.botId > 0 && selfId != config.botId) {
                     logger.warn {
-                        "pluginId=$ONEBOT_PLUGIN_ID mode=REVERSE_WS action=accept result=denied selfId=$selfId expectedSelfId=${config.botId}"
+                        "拒绝 OneBot 反向连接：selfId=$selfId，期望=${config.botId}"
                     }
                     conn.close(1008, "unexpected_self_id")
                     return
@@ -70,7 +70,7 @@ internal class ReverseWsOneBotGateway(
                 activeBot.set(Bot(conn, runtimeClient.actionFactory))
 
                 logger.info {
-                    "pluginId=$ONEBOT_PLUGIN_ID mode=REVERSE_WS action=accept result=connected selfId=$selfId remote=${conn.remoteSocketAddress}"
+                    "OneBot 反向连接已建立：selfId=$selfId，remote=${conn.remoteSocketAddress}"
                 }
             }
 
@@ -79,7 +79,7 @@ internal class ReverseWsOneBotGateway(
                     runtimeClient.msgHandler.handle(message)
                 }.onFailure {
                     logger.warn(it) {
-                        "pluginId=$ONEBOT_PLUGIN_ID mode=REVERSE_WS action=receive result=failed remote=${conn.remoteSocketAddress}"
+                        "OneBot 消息解析失败：remote=${conn.remoteSocketAddress}"
                     }
                 }
             }
@@ -88,20 +88,20 @@ internal class ReverseWsOneBotGateway(
                 if (activeChannel.compareAndSet(conn, null)) {
                     activeBot.set(null)
                 }
-                logger.info {
-                    "pluginId=$ONEBOT_PLUGIN_ID mode=REVERSE_WS action=close code=$code remote=$remote reason=$reason"
+                logger.debug {
+                    "OneBot 反向连接已关闭：code=$code，remote=$remote，reason=$reason"
                 }
             }
 
             override fun onError(conn: WebSocket?, ex: Exception) {
                 logger.warn(ex) {
-                    "pluginId=$ONEBOT_PLUGIN_ID mode=REVERSE_WS action=connection_error remote=${conn?.remoteSocketAddress}"
+                    "OneBot 连接异常：remote=${conn?.remoteSocketAddress}"
                 }
             }
 
             override fun onStart() {
                 logger.info {
-                    "pluginId=$ONEBOT_PLUGIN_ID mode=REVERSE_WS action=listen host=${config.host} port=${config.port}"
+                    "OneBot 反向网关监听中：${config.host}:${config.port}"
                 }
             }
         }.also { it.start() }
@@ -128,7 +128,7 @@ internal class ReverseWsOneBotGateway(
             runCatching {
                 server?.stop(1000, "shutdown")
             }.onFailure {
-                logger.warn(it) { "pluginId=$ONEBOT_PLUGIN_ID mode=REVERSE_WS action=stop result=failed" }
+                logger.warn(it) { "OneBot 反向网关停止失败" }
             }
             server = null
             client?.eventExecutor?.shutdownNow()
