@@ -4,6 +4,6 @@ version: 0.0.1
 mainClass: top.colter.dynamic.onebot.OneBotGatewayPlugin
 capabilities:
   - MESSAGE_SINK
-apiVersion: 2.2.0
+apiVersion: 2.3.0
 description: OneBot gateway plugin with forward and reverse WebSocket transports.
 author: dynamic-bot
