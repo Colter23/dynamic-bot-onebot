@@ -7,9 +7,11 @@ import top.colter.dynamic.core.config.DefaultConfigService
 import top.colter.dynamic.core.config.loadOrCreate
 import top.colter.dynamic.core.data.ChatType
 import top.colter.dynamic.core.data.MessageTarget
+import top.colter.dynamic.core.data.SubscriberType
 import top.colter.dynamic.core.event.CommandResultEvent
 import top.colter.dynamic.core.event.MessageEvent
 import top.colter.dynamic.core.event.broadcast
+import top.colter.dynamic.core.plugin.MessageTargetCandidate
 import top.colter.dynamic.core.plugin.MessageSinkPlugin
 import top.colter.dynamic.core.repository.MessageDeliveryRepository
 import top.colter.dynamic.core.tools.loggerFor
@@ -27,6 +29,8 @@ public class OneBotGatewayPlugin : MessageSinkPlugin, ConfigurablePlugin<OneBotC
     override val configDescription: String = "OneBot 连接与消息投递配置。"
     override val configClass = OneBotConfig::class
     override val configFormSpec = OneBotConfigForm.spec
+    override val targetPlatformId: String = "onebot"
+    override val supportedTargetTypes: Set<SubscriberType> = setOf(SubscriberType.GROUP, SubscriberType.USER)
 
     override fun init() {
         config = DefaultConfigService.loadOrCreate(ONEBOT_PLUGIN_ID) { OneBotConfig() }
@@ -142,6 +146,19 @@ public class OneBotGatewayPlugin : MessageSinkPlugin, ConfigurablePlugin<OneBotC
         }
     }
 
+    override suspend fun listMessageTargets(type: SubscriberType?): List<MessageTargetCandidate> {
+        if (!running) return emptyList()
+        val types = type?.let { setOf(it) } ?: supportedTargetTypes
+        return buildList {
+            if (SubscriberType.GROUP in types) {
+                addAll(gateway.listGroups().map { it.toCandidate(SubscriberType.GROUP) })
+            }
+            if (SubscriberType.USER in types) {
+                addAll(gateway.listFriends().map { it.toCandidate(SubscriberType.USER) })
+            }
+        }
+    }
+
     private suspend fun sendMessage(eventId: Long, target: MessageTarget, action: suspend () -> Unit) {
         runCatching { action() }
             .onSuccess { MessageDeliveryRepository.markSent(eventId, target) }
@@ -169,5 +186,14 @@ public class OneBotGatewayPlugin : MessageSinkPlugin, ConfigurablePlugin<OneBotC
             OneBotConnectionMode.FORWARD_WS -> url
             OneBotConnectionMode.REVERSE_WS -> "$host:$port"
         }
+    }
+
+    private fun OneBotTargetCandidate.toCandidate(type: SubscriberType): MessageTargetCandidate {
+        return MessageTargetCandidate(
+            platformId = targetPlatformId,
+            type = type,
+            targetId = id,
+            name = name,
+        )
     }
 }

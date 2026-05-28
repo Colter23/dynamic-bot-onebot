@@ -1,6 +1,7 @@
 package top.colter.dynamic.onebot
 
 import cn.evole.onebot.sdk.action.misc.ActionData
+import cn.evole.onebot.sdk.action.misc.ActionList
 import com.google.gson.JsonArray
 
 internal const val ONEBOT_PLUGIN_ID: String = "onebot-gateway"
@@ -17,10 +18,17 @@ public enum class OneBotChatType {
     PRIVATE,
 }
 
+public data class OneBotTargetCandidate(
+    val id: String,
+    val name: String,
+)
+
 public interface OneBotGateway {
     public fun connect(onIncomingMessage: (OneBotIncomingMessage) -> Unit)
     public suspend fun sendPrivateMessage(userId: Long, message: JsonArray)
     public suspend fun sendGroupMessage(groupId: Long, message: JsonArray)
+    public suspend fun listGroups(): List<OneBotTargetCandidate>
+    public suspend fun listFriends(): List<OneBotTargetCandidate>
     public suspend fun close()
 }
 
@@ -33,6 +41,10 @@ public class NoopOneBotGateway : OneBotGateway {
 
     override suspend fun sendGroupMessage(groupId: Long, message: JsonArray) {
     }
+
+    override suspend fun listGroups(): List<OneBotTargetCandidate> = emptyList()
+
+    override suspend fun listFriends(): List<OneBotTargetCandidate> = emptyList()
 
     override suspend fun close() {
     }
@@ -56,5 +68,17 @@ internal fun ActionData<*>?.requireOk(action: String, targetId: Long) {
     }
     if (!status.equals("ok", ignoreCase = true)) {
         error("OneBot 调用失败：action=$action，targetId=$targetId，status=$status，retCode=$retCode")
+    }
+}
+
+internal fun ActionList<*>?.requireOk(action: String) {
+    if (this == null) {
+        return
+    }
+    if (status.equals("no_response", ignoreCase = true)) {
+        return
+    }
+    if (!status.equals("ok", ignoreCase = true)) {
+        error("OneBot 调用失败：action=$action，status=$status，retCode=$retCode")
     }
 }

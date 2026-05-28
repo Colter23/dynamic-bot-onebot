@@ -121,6 +121,36 @@ internal class ReverseWsOneBotGateway(
         }
     }
 
+    override suspend fun listGroups(): List<OneBotTargetCandidate> {
+        return withContext(Dispatchers.IO) {
+            val action = requireBot().getGroupList()
+            action.requireOk("get_group_list")
+            action?.data.orEmpty().map { group ->
+                val id = group.groupId.toString()
+                OneBotTargetCandidate(
+                    id = id,
+                    name = group.groupName?.takeIf { it.isNotBlank() } ?: id,
+                )
+            }
+        }
+    }
+
+    override suspend fun listFriends(): List<OneBotTargetCandidate> {
+        return withContext(Dispatchers.IO) {
+            val action = requireBot().getFriendList()
+            action.requireOk("get_friend_list")
+            action?.data.orEmpty().map { friend ->
+                val id = friend.userId.toString()
+                OneBotTargetCandidate(
+                    id = id,
+                    name = friend.remark?.takeIf { it.isNotBlank() }
+                        ?: friend.nickname?.takeIf { it.isNotBlank() }
+                        ?: id,
+                )
+            }
+        }
+    }
+
     override suspend fun close() {
         withContext(Dispatchers.IO) {
             activeBot.set(null)
