@@ -26,8 +26,18 @@ class OneBotConfigFormTest {
         assertTrue(result.changed)
         assertTrue(result.restartRequired)
         assertEquals(listOf("OneBot 插件"), result.restartTargets)
-        assertFailsWith<IllegalArgumentException> {
+        val error = assertFailsWith<IllegalArgumentException> {
             plugin.applyConfig(OneBotConfig(mode = OneBotConnectionMode.REVERSE_WS, host = "", port = 6701))
         }
+        assertEquals("反向 WebSocket 监听地址不能为空", error.message)
+    }
+
+    @Test
+    fun `config validate should report Chinese messages`() {
+        val error = assertFailsWith<IllegalArgumentException> {
+            OneBotConfigForm.validate(OneBotConfig(port = 70_000))
+        }
+
+        assertEquals("反向 WebSocket 端口必须在 1 到 65535 之间", error.message)
     }
 }

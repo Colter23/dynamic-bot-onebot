@@ -110,22 +110,21 @@ internal class ReverseWsOneBotGateway(
     override suspend fun sendPrivateMessage(userId: Long, message: JsonArray) {
         withContext(Dispatchers.IO) {
             val action = requireBot().sendPrivateMsg(userId, message, false)
-            action.requireOk("send_private_msg", userId)
+            action.requireSendAccepted("send_private_msg", userId)
         }
     }
 
     override suspend fun sendGroupMessage(groupId: Long, message: JsonArray) {
         withContext(Dispatchers.IO) {
             val action = requireBot().sendGroupMsg(groupId, message, false)
-            action.requireOk("send_group_msg", groupId)
+            action.requireSendAccepted("send_group_msg", groupId)
         }
     }
 
     override suspend fun listGroups(): List<OneBotTargetCandidate> {
         return withContext(Dispatchers.IO) {
             val action = requireBot().getGroupList()
-            action.requireOk("get_group_list")
-            action?.data.orEmpty().map { group ->
+            action.requireQueryOk("get_group_list").map { group ->
                 val id = group.groupId.toString()
                 OneBotTargetCandidate(
                     id = id,
@@ -138,8 +137,7 @@ internal class ReverseWsOneBotGateway(
     override suspend fun listFriends(): List<OneBotTargetCandidate> {
         return withContext(Dispatchers.IO) {
             val action = requireBot().getFriendList()
-            action.requireOk("get_friend_list")
-            action?.data.orEmpty().map { friend ->
+            action.requireQueryOk("get_friend_list").map { friend ->
                 val id = friend.userId.toString()
                 OneBotTargetCandidate(
                     id = id,
@@ -168,7 +166,7 @@ internal class ReverseWsOneBotGateway(
     }
 
     private fun requireBot(): Bot {
-        return activeBot.get() ?: error("onebot_reverse_ws_not_connected")
+        return activeBot.get() ?: error("OneBot 反向连接尚未建立")
     }
 
     private fun isAuthorized(handshake: ClientHandshake): Boolean {

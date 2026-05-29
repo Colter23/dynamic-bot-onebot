@@ -31,12 +31,14 @@ class OneBotMessageMapperTest {
     fun `unsupported route for invalid target`() {
         val route = OneBotTarget.fromAddress(demoTarget(kind = TargetKind.GROUP, externalId = "bad"))
         assertTrue(route is OneBotTarget.Unsupported)
+        assertEquals("OneBot 目标 ID 必须是数字：bad", route.reason)
     }
 
     @Test
     fun `unsupported route for channel target`() {
         val route = OneBotTarget.fromAddress(demoTarget(kind = TargetKind.CHANNEL, externalId = "123456"))
         assertTrue(route is OneBotTarget.Unsupported)
+        assertEquals("OneBot 不支持目标类型：CHANNEL", route.reason)
     }
 
     @Test

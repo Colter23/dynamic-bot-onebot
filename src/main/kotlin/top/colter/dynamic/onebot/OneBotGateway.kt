@@ -59,7 +59,7 @@ internal object OneBotGatewayFactory {
     }
 }
 
-internal fun ActionData<*>?.requireOk(action: String, targetId: Long) {
+internal fun ActionData<*>?.requireSendAccepted(action: String, targetId: Long) {
     if (this == null) {
         return
     }
@@ -67,18 +67,19 @@ internal fun ActionData<*>?.requireOk(action: String, targetId: Long) {
         return
     }
     if (!status.equals("ok", ignoreCase = true)) {
-        error("OneBot 调用失败：action=$action，targetId=$targetId，status=$status，retCode=$retCode")
+        error("OneBot 发送失败：action=$action，targetId=$targetId，status=$status，retCode=$retCode")
     }
 }
 
-internal fun ActionList<*>?.requireOk(action: String) {
+internal fun <T> ActionList<T>?.requireQueryOk(action: String): List<T> {
     if (this == null) {
-        return
+        error("OneBot 查询失败：action=$action，原因=未收到响应")
     }
     if (status.equals("no_response", ignoreCase = true)) {
-        return
+        error("OneBot 查询失败：action=$action，原因=未收到响应")
     }
     if (!status.equals("ok", ignoreCase = true)) {
-        error("OneBot 调用失败：action=$action，status=$status，retCode=$retCode")
+        error("OneBot 查询失败：action=$action，status=$status，retCode=$retCode")
     }
+    return data ?: error("OneBot 查询失败：action=$action，原因=响应数据为空")
 }

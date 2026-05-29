@@ -10,11 +10,12 @@ internal sealed interface OneBotTarget {
 
     companion object {
         fun fromAddress(target: TargetAddress): OneBotTarget {
-            val targetId = target.externalId.toLongOrNull() ?: return Unsupported("invalid_target_id")
+            val targetId = target.externalId.toLongOrNull()
+                ?: return Unsupported("OneBot 目标 ID 必须是数字：${target.externalId}")
             return when (target.kind) {
                 TargetKind.GROUP -> Group(targetId)
                 TargetKind.USER -> User(targetId)
-                else -> Unsupported("unsupported_target_type_${target.kind}")
+                else -> Unsupported("OneBot 不支持目标类型：${target.kind}")
             }
         }
     }

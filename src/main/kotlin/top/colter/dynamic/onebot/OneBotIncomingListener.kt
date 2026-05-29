@@ -37,9 +37,12 @@ internal class OneBotIncomingListener(
     }
 
     private fun MessageEvent.toCommandText(): String {
-        return rawMessage?.takeIf { it.isNotBlank() }
+        return arrayMsg.orEmpty()
+            .joinToString("") { it.toPlainText() }
+            .takeIf { it.isNotBlank() }
+            ?: rawMessage?.takeIf { it.isNotBlank() }
             ?: message?.takeIf { it.isNotBlank() }
-            ?: arrayMsg.orEmpty().joinToString("") { it.toPlainText() }
+            ?: ""
     }
 
     private fun ArrayMsg.toPlainText(): String {

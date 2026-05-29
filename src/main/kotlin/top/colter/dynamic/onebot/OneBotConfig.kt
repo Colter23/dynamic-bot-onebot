@@ -116,16 +116,16 @@ public object OneBotConfigForm {
     )
 
     public fun validate(config: OneBotConfig) {
-        require(config.port in 1..65_535) { "port must be between 1 and 65535" }
-        require(config.botId >= 0) { "botId must not be negative" }
-        require(config.reconnectIntervalSeconds >= 1) { "reconnectIntervalSeconds must be at least 1" }
-        require(config.reconnectMaxTimes >= 0) { "reconnectMaxTimes must not be negative" }
+        require(config.port in 1..65_535) { "反向 WebSocket 端口必须在 1 到 65535 之间" }
+        require(config.botId >= 0) { "机器人 ID 不能为负数" }
+        require(config.reconnectIntervalSeconds >= 1) { "重连间隔不能小于 1 秒" }
+        require(config.reconnectMaxTimes >= 0) { "最大重连次数不能为负数" }
         when (config.mode) {
             OneBotConnectionMode.FORWARD_WS -> require(config.url.isNotBlank()) {
-                "url must not be blank in FORWARD_WS mode"
+                "正向 WebSocket 地址不能为空"
             }
             OneBotConnectionMode.REVERSE_WS -> require(config.host.isNotBlank()) {
-                "host must not be blank in REVERSE_WS mode"
+                "反向 WebSocket 监听地址不能为空"
             }
         }
     }
