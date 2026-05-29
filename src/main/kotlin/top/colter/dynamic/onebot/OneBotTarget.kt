@@ -1,7 +1,7 @@
 package top.colter.dynamic.onebot
 
-import top.colter.dynamic.core.data.MessageTarget
-import top.colter.dynamic.core.data.SubscriberType
+import top.colter.dynamic.core.data.TargetAddress
+import top.colter.dynamic.core.data.TargetKind
 
 internal sealed interface OneBotTarget {
     data class Group(val groupId: Long) : OneBotTarget
@@ -9,13 +9,12 @@ internal sealed interface OneBotTarget {
     data class Unsupported(val reason: String) : OneBotTarget
 
     companion object {
-        fun fromMessageTarget(target: MessageTarget): OneBotTarget {
-            val targetId = target.targetId.toLongOrNull() ?: return Unsupported("invalid_target_id")
-            return when (target.type) {
-                SubscriberType.GROUP -> Group(targetId)
-                SubscriberType.USER -> User(targetId)
-                SubscriberType.CHANNEL -> Unsupported("unsupported_target_type_CHANNEL")
-                SubscriberType.OTHER -> Unsupported("unsupported_target_type_${target.type}")
+        fun fromAddress(target: TargetAddress): OneBotTarget {
+            val targetId = target.externalId.toLongOrNull() ?: return Unsupported("invalid_target_id")
+            return when (target.kind) {
+                TargetKind.GROUP -> Group(targetId)
+                TargetKind.USER -> User(targetId)
+                else -> Unsupported("unsupported_target_type_${target.kind}")
             }
         }
     }

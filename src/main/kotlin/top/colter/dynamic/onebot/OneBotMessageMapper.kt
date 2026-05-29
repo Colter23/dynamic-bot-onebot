@@ -13,32 +13,32 @@ import java.nio.file.Path
 import java.nio.file.Paths
 import java.util.Base64
 import top.colter.dynamic.core.data.Message
-import top.colter.dynamic.core.data.MessageChain
+import top.colter.dynamic.core.data.MessageBatch
 import top.colter.dynamic.core.data.MessageContent
 
 public object OneBotMessageMapper {
     public fun toArrayMessage(message: Message): List<ArrayMsg> {
-        return toArrayMessage(message.chain)
+        return toArrayMessage(message.batches)
     }
 
     public fun toArrayMessages(message: Message): List<List<ArrayMsg>> {
-        return toArrayMessages(message.chain)
+        return toArrayMessages(message.batches)
     }
 
     public fun toJsonArrayMessage(message: Message): JsonArray {
         return toJsonArray(toArrayMessage(message))
     }
 
-    public fun toJsonArrayMessage(chain: List<MessageChain>): JsonArray {
-        return toJsonArray(toArrayMessage(chain))
+    public fun toJsonArrayMessage(batches: List<MessageBatch>): JsonArray {
+        return toJsonArray(toArrayMessage(batches))
     }
 
     public fun toJsonArrayMessages(message: Message): List<JsonArray> {
         return toArrayMessages(message).map { toJsonArray(it) }
     }
 
-    public fun toJsonArrayMessages(chain: List<MessageChain>): List<JsonArray> {
-        return toArrayMessages(chain).map { toJsonArray(it) }
+    public fun toJsonArrayMessages(batches: List<MessageBatch>): List<JsonArray> {
+        return toArrayMessages(batches).map { toJsonArray(it) }
     }
 
     public fun toJsonArray(message: List<ArrayMsg>): JsonArray {
@@ -56,16 +56,16 @@ public object OneBotMessageMapper {
         return array
     }
 
-    public fun toArrayMessages(chain: List<MessageChain>): List<List<ArrayMsg>> {
-        return chain
+    public fun toArrayMessages(batches: List<MessageBatch>): List<List<ArrayMsg>> {
+        return batches
             .map { it.toArrayMessage() }
             .filter { it.isNotEmpty() }
             .ifEmpty { listOf(listOf(text("(empty)"))) }
     }
 
-    public fun toArrayMessage(chain: List<MessageChain>): List<ArrayMsg> {
+    public fun toArrayMessage(batches: List<MessageBatch>): List<ArrayMsg> {
         val result = mutableListOf<ArrayMsg>()
-        toArrayMessages(chain).forEach { segments ->
+        toArrayMessages(batches).forEach { segments ->
             if (result.isNotEmpty()) {
                 result += text("\n")
             }
@@ -74,14 +74,14 @@ public object OneBotMessageMapper {
         return result.ifEmpty { listOf(text("(empty)")) }
     }
 
-    private fun MessageChain.toArrayMessage(): List<ArrayMsg> {
+    private fun MessageBatch.toArrayMessage(): List<ArrayMsg> {
         val result = mutableListOf<ArrayMsg>()
         content.forEach { item ->
             when (item) {
                 is MessageContent.Text -> result.addText(item.fallbackText)
                 is MessageContent.Mention -> {
                     result.addText(item.fallbackText)
-                    result += segment(MsgType.at, "qq" to item.targetId)
+                    result += segment(MsgType.at, "qq" to item.target.externalId)
                 }
                 is MessageContent.MentionAll -> {
                     result.addText(item.fallbackText)
@@ -92,11 +92,11 @@ public object OneBotMessageMapper {
                     result.addText(item.fallbackText)
                 }
                 is MessageContent.Video -> {
-                    result += segment(MsgType.video, "file" to item.videoUri.toOneBotFileUri())
+                    result += segment(MsgType.video, "file" to item.video.uri.toOneBotFileUri())
                     result.addText(item.fallbackText)
                 }
                 is MessageContent.Audio -> {
-                    result += segment(MsgType.record, "file" to item.audioUri.toOneBotFileUri())
+                    result += segment(MsgType.record, "file" to item.audio.uri.toOneBotFileUri())
                     result.addText(item.fallbackText)
                 }
                 is MessageContent.Reply -> {

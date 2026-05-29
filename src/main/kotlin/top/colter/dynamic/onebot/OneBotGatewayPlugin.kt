@@ -6,8 +6,8 @@ import top.colter.dynamic.core.config.ConfigurablePlugin
 import top.colter.dynamic.core.config.DefaultConfigService
 import top.colter.dynamic.core.config.loadOrCreate
 import top.colter.dynamic.core.data.ChatType
-import top.colter.dynamic.core.data.MessageTarget
-import top.colter.dynamic.core.data.SubscriberType
+import top.colter.dynamic.core.data.TargetAddress
+import top.colter.dynamic.core.data.TargetKind
 import top.colter.dynamic.core.event.CommandResultEvent
 import top.colter.dynamic.core.event.MessageEvent
 import top.colter.dynamic.core.event.broadcast
@@ -30,7 +30,7 @@ public class OneBotGatewayPlugin : MessageSinkPlugin, ConfigurablePlugin<OneBotC
     override val configClass = OneBotConfig::class
     override val configFormSpec = OneBotConfigForm.spec
     override val targetPlatformId: String = "onebot"
-    override val supportedTargetTypes: Set<SubscriberType> = setOf(SubscriberType.GROUP, SubscriberType.USER)
+    override val supportedTargetTypes: Set<TargetKind> = setOf(TargetKind.GROUP, TargetKind.USER)
 
     override fun init() {
         config = DefaultConfigService.loadOrCreate(ONEBOT_PLUGIN_ID) { OneBotConfig() }
@@ -96,9 +96,9 @@ public class OneBotGatewayPlugin : MessageSinkPlugin, ConfigurablePlugin<OneBotC
         val payloads = OneBotMessageMapper.toJsonArrayMessages(message)
 
         message.targets
-            .filter { it.platformId == ONEBOT_PLUGIN_ID || it.platformId == "onebot" }
+            .filter { it.platformId.value == ONEBOT_PLUGIN_ID || it.platformId.value == targetPlatformId }
             .forEach { messageTarget ->
-                when (val target = OneBotTarget.fromMessageTarget(messageTarget)) {
+                when (val target = OneBotTarget.fromAddress(messageTarget)) {
                     is OneBotTarget.Group -> sendMessage(
                         eventId = message.id,
                         target = messageTarget,
@@ -120,7 +120,7 @@ public class OneBotGatewayPlugin : MessageSinkPlugin, ConfigurablePlugin<OneBotC
                     is OneBotTarget.Unsupported -> {
                         MessageDeliveryRepository.markFailed(message.id, messageTarget, target.reason)
                         logger.warn {
-                            "跳过 OneBot 目标：messageId=${message.id}，targetId=${messageTarget.targetId}，原因=${target.reason}"
+                            "跳过 OneBot 目标：messageId=${message.id}，targetId=${messageTarget.externalId}，原因=${target.reason}"
                         }
                     }
                 }
@@ -146,26 +146,26 @@ public class OneBotGatewayPlugin : MessageSinkPlugin, ConfigurablePlugin<OneBotC
         }
     }
 
-    override suspend fun listMessageTargets(type: SubscriberType?): List<MessageTargetCandidate> {
+    override suspend fun listMessageTargets(type: TargetKind?): List<MessageTargetCandidate> {
         if (!running) return emptyList()
         val types = type?.let { setOf(it) } ?: supportedTargetTypes
         return buildList {
-            if (SubscriberType.GROUP in types) {
-                addAll(gateway.listGroups().map { it.toCandidate(SubscriberType.GROUP) })
+            if (TargetKind.GROUP in types) {
+                addAll(gateway.listGroups().map { it.toCandidate(TargetKind.GROUP) })
             }
-            if (SubscriberType.USER in types) {
-                addAll(gateway.listFriends().map { it.toCandidate(SubscriberType.USER) })
+            if (TargetKind.USER in types) {
+                addAll(gateway.listFriends().map { it.toCandidate(TargetKind.USER) })
             }
         }
     }
 
-    private suspend fun sendMessage(eventId: Long, target: MessageTarget, action: suspend () -> Unit) {
+    private suspend fun sendMessage(eventId: String, target: TargetAddress, action: suspend () -> Unit) {
         runCatching { action() }
             .onSuccess { MessageDeliveryRepository.markSent(eventId, target) }
             .onFailure {
                 MessageDeliveryRepository.markFailed(eventId, target, it.message)
                 logger.warn(it) {
-                    "OneBot 消息发送失败：messageId=$eventId，targetId=${target.targetId}，原因=${it.message}"
+                    "OneBot 消息发送失败：messageId=$eventId，targetId=${target.externalId}，原因=${it.message}"
                 }
             }
     }
@@ -188,7 +188,7 @@ public class OneBotGatewayPlugin : MessageSinkPlugin, ConfigurablePlugin<OneBotC
         }
     }
 
-    private fun OneBotTargetCandidate.toCandidate(type: SubscriberType): MessageTargetCandidate {
+    private fun OneBotTargetCandidate.toCandidate(type: TargetKind): MessageTargetCandidate {
         return MessageTargetCandidate(
             platformId = targetPlatformId,
             type = type,
