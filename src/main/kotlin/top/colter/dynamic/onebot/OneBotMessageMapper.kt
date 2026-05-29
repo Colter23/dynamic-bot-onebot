@@ -103,9 +103,6 @@ public object OneBotMessageMapper {
                     result += segment(MsgType.reply, "id" to item.messageId)
                     result.addText(item.fallbackText)
                 }
-                is MessageContent.Forward -> {
-                    result.addText(item.fallbackText.ifBlank { "[forward messages: ${item.messages.size}]" })
-                }
             }
         }
         return result

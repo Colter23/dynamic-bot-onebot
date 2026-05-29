@@ -2,39 +2,40 @@ package top.colter.dynamic.onebot
 
 import cn.evole.onebot.sdk.enums.MsgType
 import java.nio.file.Files
-import top.colter.dynamic.core.data.LazyImage
-import top.colter.dynamic.core.data.Message
-import top.colter.dynamic.core.data.MessageChain
-import top.colter.dynamic.core.data.MessageContent
-import top.colter.dynamic.core.data.MessageTarget
-import top.colter.dynamic.core.data.SubscriberType
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import top.colter.dynamic.core.data.MediaKind
+import top.colter.dynamic.core.data.MediaRef
+import top.colter.dynamic.core.data.Message
+import top.colter.dynamic.core.data.MessageBatch
+import top.colter.dynamic.core.data.MessageContent
+import top.colter.dynamic.core.data.TargetAddress
+import top.colter.dynamic.core.data.TargetKind
 
 class OneBotMessageMapperTest {
 
     @Test
     fun `route group message`() {
-        val route = OneBotTarget.fromMessageTarget(demoTarget(type = SubscriberType.GROUP, targetId = "123456"))
+        val route = OneBotTarget.fromAddress(demoTarget(kind = TargetKind.GROUP, externalId = "123456"))
         assertEquals(OneBotTarget.Group(123456), route)
     }
 
     @Test
     fun `route user message`() {
-        val route = OneBotTarget.fromMessageTarget(demoTarget(type = SubscriberType.USER, targetId = "654321"))
+        val route = OneBotTarget.fromAddress(demoTarget(kind = TargetKind.USER, externalId = "654321"))
         assertEquals(OneBotTarget.User(654321), route)
     }
 
     @Test
     fun `unsupported route for invalid target`() {
-        val route = OneBotTarget.fromMessageTarget(demoTarget(type = SubscriberType.GROUP, targetId = ""))
+        val route = OneBotTarget.fromAddress(demoTarget(kind = TargetKind.GROUP, externalId = "bad"))
         assertTrue(route is OneBotTarget.Unsupported)
     }
 
     @Test
     fun `unsupported route for channel target`() {
-        val route = OneBotTarget.fromMessageTarget(demoTarget(type = SubscriberType.CHANNEL, targetId = "123456"))
+        val route = OneBotTarget.fromAddress(demoTarget(kind = TargetKind.CHANNEL, externalId = "123456"))
         assertTrue(route is OneBotTarget.Unsupported)
     }
 
@@ -42,9 +43,9 @@ class OneBotMessageMapperTest {
     fun `format image and text as array message`() {
         val message = demoMessage(
             listOf(
-                MessageContent.Image(fallbackText = "", image = LazyImage("https://example.com/a.png")),
-                MessageContent.Text("测试动态"),
-            )
+                MessageContent.Image(fallbackText = "", image = MediaRef("https://example.com/a.png", MediaKind.IMAGE)),
+                MessageContent.Text("hello"),
+            ),
         )
 
         val segments = OneBotMessageMapper.toArrayMessage(message)
@@ -52,16 +53,19 @@ class OneBotMessageMapperTest {
         assertEquals(MsgType.image, segments[0].type)
         assertEquals("https://example.com/a.png", segments[0].data["file"])
         assertEquals(MsgType.text, segments[1].type)
-        assertEquals("测试动态", segments[1].data["text"])
+        assertEquals("hello", segments[1].data["text"])
     }
 
     @Test
     fun `format at and at all as onebot at segments`() {
         val message = demoMessage(
             listOf(
-                MessageContent.Mention(fallbackText = "hi ", targetId = "10001"),
+                MessageContent.Mention(
+                    fallbackText = "hi ",
+                    target = demoTarget(kind = TargetKind.USER, externalId = "10001"),
+                ),
                 MessageContent.MentionAll(fallbackText = ""),
-            )
+            ),
         )
 
         val segments = OneBotMessageMapper.toArrayMessage(message)
@@ -75,8 +79,8 @@ class OneBotMessageMapperTest {
     }
 
     @Test
-    fun `format empty chain as non empty text message`() {
-        val segments = OneBotMessageMapper.toArrayMessage(listOf(MessageChain(emptyList())))
+    fun `format empty batch as non empty text message`() {
+        val segments = OneBotMessageMapper.toArrayMessage(listOf(MessageBatch(emptyList())))
 
         assertEquals(1, segments.size)
         assertEquals(MsgType.text, segments.single().type)
@@ -84,12 +88,12 @@ class OneBotMessageMapperTest {
     }
 
     @Test
-    fun `format multiple chains as separate array messages`() {
+    fun `format multiple batches as separate array messages`() {
         val messages = OneBotMessageMapper.toArrayMessages(
             listOf(
-                MessageChain(listOf(MessageContent.Text("first"))),
-                MessageChain(listOf(MessageContent.Text("second"))),
-            )
+                MessageBatch(listOf(MessageContent.Text("first"))),
+                MessageBatch(listOf(MessageContent.Text("second"))),
+            ),
         )
 
         assertEquals(2, messages.size)
@@ -101,9 +105,9 @@ class OneBotMessageMapperTest {
     fun `format json array message for onebot json overload`() {
         val message = demoMessage(
             listOf(
-                MessageContent.Image(fallbackText = "", image = LazyImage("file:///tmp/draw.png")),
+                MessageContent.Image(fallbackText = "", image = MediaRef("file:///tmp/draw.png", MediaKind.IMAGE)),
                 MessageContent.Text("hello"),
-            )
+            ),
         )
 
         val payload = OneBotMessageMapper.toJsonArrayMessage(message)
@@ -121,7 +125,12 @@ class OneBotMessageMapperTest {
         try {
             Files.write(image, byteArrayOf(1, 2, 3))
             val message = demoMessage(
-                listOf(MessageContent.Image(fallbackText = "", image = LazyImage(image.toString())))
+                listOf(
+                    MessageContent.Image(
+                        fallbackText = "",
+                        image = MediaRef(image.toString(), MediaKind.IMAGE),
+                    ),
+                ),
             )
 
             val payload = OneBotMessageMapper.toJsonArrayMessage(message)
@@ -134,18 +143,18 @@ class OneBotMessageMapperTest {
 
     private fun demoMessage(contents: List<MessageContent>): Message {
         return Message(
-            id = 1,
+            id = "1",
             time = 1710000000,
-            targets = listOf(demoTarget(SubscriberType.GROUP, "123456")),
-            chain = listOf(MessageChain(content = contents)),
+            targets = listOf(demoTarget(TargetKind.GROUP, "123456")),
+            batches = listOf(MessageBatch(content = contents)),
         )
     }
 
-    private fun demoTarget(type: SubscriberType, targetId: String): MessageTarget {
-        return MessageTarget(
+    private fun demoTarget(kind: TargetKind, externalId: String): TargetAddress {
+        return TargetAddress.of(
             platformId = "onebot",
-            type = type,
-            targetId = targetId,
+            kind = kind,
+            externalId = externalId,
         )
     }
 }
