@@ -10,11 +10,25 @@ class OneBotConfigFormTest {
     fun `form should expose secret token and restart fields`() {
         val tokenField = OneBotConfigForm.spec.fields.single { it.path == "accessToken" }
         val portField = OneBotConfigForm.spec.fields.single { it.path == "port" }
+        val reconnectField = OneBotConfigForm.spec.fields.single { it.path == "reconnect" }
+        val reconnectMaxTimesField = OneBotConfigForm.spec.fields.single { it.path == "reconnectMaxTimes" }
 
         assertTrue(tokenField.secret)
         assertTrue(tokenField.restartRequired)
         assertEquals(1, portField.min)
         assertEquals(65_535, portField.max)
+        assertTrue(reconnectField.description.contains("仅正向 WebSocket 生效"))
+        assertEquals(0, reconnectMaxTimesField.min)
+        assertTrue(reconnectMaxTimesField.description.contains("0 表示不重连"))
+    }
+
+    @Test
+    fun `default config should keep forward websocket reconnect enabled`() {
+        val config = OneBotConfig()
+
+        assertTrue(config.reconnect)
+        assertEquals(5, config.reconnectIntervalSeconds)
+        assertEquals(3, config.reconnectMaxTimes)
     }
 
     @Test

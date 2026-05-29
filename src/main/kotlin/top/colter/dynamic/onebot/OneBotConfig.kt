@@ -14,7 +14,7 @@ public data class OneBotConfig(
     val botId: Long = 0,
     val reconnect: Boolean = true,
     val reconnectIntervalSeconds: Int = 5,
-    val reconnectMaxTimes: Int = 0,
+    val reconnectMaxTimes: Int = 3,
 )
 
 public enum class OneBotConnectionMode {
@@ -91,6 +91,7 @@ public object OneBotConfigForm {
                 label = "自动重连",
                 type = ConfigFieldType.BOOLEAN,
                 section = "重连",
+                description = "仅正向 WebSocket 生效；反向 WebSocket 由 OneBot 客户端重新连接。",
                 restartRequired = true,
                 restartTarget = "OneBot 插件",
             ),
@@ -99,6 +100,7 @@ public object OneBotConfigForm {
                 label = "重连间隔（秒）",
                 type = ConfigFieldType.NUMBER,
                 section = "重连",
+                description = "仅正向 WebSocket 生效。",
                 min = 1,
                 restartRequired = true,
                 restartTarget = "OneBot 插件",
@@ -108,6 +110,7 @@ public object OneBotConfigForm {
                 label = "最大重连次数",
                 type = ConfigFieldType.NUMBER,
                 section = "重连",
+                description = "仅正向 WebSocket 生效；0 表示不重连。",
                 min = 0,
                 restartRequired = true,
                 restartTarget = "OneBot 插件",
