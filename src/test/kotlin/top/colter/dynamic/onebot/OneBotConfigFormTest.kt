@@ -25,7 +25,7 @@ class OneBotConfigFormTest {
 
         assertTrue(result.changed)
         assertTrue(result.restartRequired)
-        assertEquals(listOf("OneBot plugin"), result.restartTargets)
+        assertEquals(listOf("OneBot 插件"), result.restartTargets)
         assertFailsWith<IllegalArgumentException> {
             plugin.applyConfig(OneBotConfig(mode = OneBotConnectionMode.REVERSE_WS, host = "", port = 6701))
         }

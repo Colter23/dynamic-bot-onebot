@@ -22,13 +22,13 @@ public class OneBotGatewayPlugin : MessageSinkPlugin, ConfigurablePlugin<OneBotC
     private var pluginId: String = ONEBOT_PLUGIN_ID
     private var config: OneBotConfig = OneBotConfig()
     private var gateway: OneBotGateway = NoopOneBotGateway()
-    private var eventBus: EventBus = EventBus.global
+    private lateinit var eventBus: EventBus
     private var running: Boolean = false
 
     override val configId: String
         get() = pluginId
-    override val configName: String = "OneBot Gateway"
-    override val configDescription: String = "OneBot connection and delivery settings."
+    override val configName: String = "OneBot 网关"
+    override val configDescription: String = "OneBot 连接与消息投递配置。"
     override val configClass = OneBotConfig::class
     override val configFormSpec = OneBotConfigForm.spec
     override val platformId: PlatformId = PlatformId.of("onebot")
@@ -38,7 +38,7 @@ public class OneBotGatewayPlugin : MessageSinkPlugin, ConfigurablePlugin<OneBotC
         pluginId = context.pluginId
         eventBus = context.eventBus
         config = context.configService.loadOrCreate(pluginId) { OneBotConfig() }
-        logger.info { "OneBot config loaded: pluginId=$pluginId" }
+        logger.info { "OneBot 配置已加载：pluginId=$pluginId" }
     }
 
     override suspend fun onStart() {
@@ -51,13 +51,13 @@ public class OneBotGatewayPlugin : MessageSinkPlugin, ConfigurablePlugin<OneBotC
             gateway.close()
             gateway = NoopOneBotGateway()
             logger.error(it) {
-                "OneBot start failed: mode=${config.mode} endpoint=${config.endpointLabel()}"
+                "OneBot 启动失败：mode=${config.mode} endpoint=${config.endpointLabel()}"
             }
             throw it
         }
         running = true
 
-        logger.info { "OneBot started: mode=${config.mode} endpoint=${config.endpointLabel()}" }
+        logger.info { "OneBot 已启动：mode=${config.mode} endpoint=${config.endpointLabel()}" }
     }
 
     override suspend fun onStop() {
@@ -65,7 +65,7 @@ public class OneBotGatewayPlugin : MessageSinkPlugin, ConfigurablePlugin<OneBotC
         running = false
         gateway.close()
         gateway = NoopOneBotGateway()
-        logger.info { "OneBot stopped" }
+        logger.info { "OneBot 已停止" }
     }
 
     override fun currentConfig(): OneBotConfig = config
@@ -77,11 +77,11 @@ public class OneBotGatewayPlugin : MessageSinkPlugin, ConfigurablePlugin<OneBotC
         return ConfigApplyResult(
             changed = changed,
             restartRequired = changed,
-            restartTargets = if (changed) listOf("OneBot plugin") else emptyList(),
+            restartTargets = if (changed) listOf("OneBot 插件") else emptyList(),
             message = if (changed) {
-                "OneBot config saved; restart the OneBot plugin to reconnect"
+                "OneBot 配置已保存；请重启 OneBot 插件以重新连接"
             } else {
-                "OneBot config unchanged"
+                "OneBot 配置未变化"
             },
         )
     }
@@ -117,7 +117,7 @@ public class OneBotGatewayPlugin : MessageSinkPlugin, ConfigurablePlugin<OneBotC
                     is OneBotTarget.Unsupported -> {
                         MessageDeliveryRepository.markFailed(message.id, messageTarget, target.reason)
                         logger.warn {
-                            "Skip OneBot target: messageId=${message.id} targetId=${messageTarget.externalId} reason=${target.reason}"
+                            "跳过 OneBot 目标：messageId=${message.id} targetId=${messageTarget.externalId} reason=${target.reason}"
                         }
                     }
                 }
@@ -133,12 +133,12 @@ public class OneBotGatewayPlugin : MessageSinkPlugin, ConfigurablePlugin<OneBotC
                 TargetKind.GROUP -> gateway.sendGroupMessage(event.target.chatId.toLong(), payload)
                 TargetKind.USER -> gateway.sendPrivateMessage(event.target.chatId.toLong(), payload)
                 else -> logger.warn {
-                    "Skip OneBot command result: traceId=${event.inReplyTo} unsupportedTarget=${event.target.chatType}:${event.target.chatId}"
+                    "跳过 OneBot 命令结果：traceId=${event.inReplyTo} unsupportedTarget=${event.target.chatType}:${event.target.chatId}"
                 }
             }
         }.onFailure {
             logger.warn(it) {
-                "OneBot command result send failed: traceId=${event.inReplyTo} target=${event.target.chatType}:${event.target.chatId}"
+                "OneBot 命令结果发送失败：traceId=${event.inReplyTo} target=${event.target.chatType}:${event.target.chatId}"
             }
         }
     }
@@ -162,7 +162,7 @@ public class OneBotGatewayPlugin : MessageSinkPlugin, ConfigurablePlugin<OneBotC
             .onFailure {
                 MessageDeliveryRepository.markFailed(eventId, target, it.message)
                 logger.warn(it) {
-                    "OneBot message send failed: messageId=$eventId targetId=${target.externalId} reason=${it.message}"
+                    "OneBot 消息发送失败：messageId=$eventId targetId=${target.externalId} reason=${it.message}"
                 }
             }
     }
