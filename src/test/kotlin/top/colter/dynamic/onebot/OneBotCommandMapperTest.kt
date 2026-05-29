@@ -3,7 +3,7 @@ package top.colter.dynamic.onebot
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
-import top.colter.dynamic.core.data.ChatType
+import top.colter.dynamic.core.data.TargetKind
 
 class OneBotCommandMapperTest {
 
@@ -22,7 +22,7 @@ class OneBotCommandMapperTest {
         requireNotNull(event)
         assertEquals(ONEBOT_PLUGIN_ID, event.sourcePlugin)
         assertEquals("onebot", event.context.platform)
-        assertEquals(ChatType.GROUP, event.context.chatType)
+        assertEquals(TargetKind.GROUP, event.context.chatType)
         assertEquals("12345", event.context.chatId)
         assertEquals("67890", event.context.senderId)
         assertEquals("/db status", event.rawText)
@@ -41,7 +41,7 @@ class OneBotCommandMapperTest {
         )
 
         requireNotNull(event)
-        assertEquals(ChatType.PRIVATE, event.context.chatType)
+        assertEquals(TargetKind.USER, event.context.chatType)
         assertEquals("hello", event.rawText)
     }
 
