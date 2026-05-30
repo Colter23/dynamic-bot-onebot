@@ -1,15 +1,15 @@
 package top.colter.dynamic.onebot
 
 import java.util.UUID
+import top.colter.dynamic.core.command.CommandPublishRequest
 import top.colter.dynamic.core.data.CommandContext
 import top.colter.dynamic.core.data.TargetKind
-import top.colter.dynamic.core.event.CommandEvent
 
 public object OneBotCommandMapper {
-    public fun toCommandEvent(
+    public fun toCommandRequest(
         sourcePlugin: String,
         incoming: OneBotIncomingMessage,
-    ): CommandEvent? {
+    ): CommandPublishRequest? {
         if (incoming.text.isBlank()) return null
 
         val targetKind = when (incoming.chatType) {
@@ -17,7 +17,7 @@ public object OneBotCommandMapper {
             OneBotChatType.PRIVATE -> TargetKind.USER
         }
 
-        return CommandEvent(
+        return CommandPublishRequest(
             sourcePlugin = sourcePlugin,
             context = CommandContext.of(
                 platform = "onebot",

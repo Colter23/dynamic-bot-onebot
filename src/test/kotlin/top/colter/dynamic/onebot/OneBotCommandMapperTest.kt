@@ -9,7 +9,7 @@ class OneBotCommandMapperTest {
 
     @Test
     fun `should map group command input`() {
-        val event = OneBotCommandMapper.toCommandEvent(
+        val request = OneBotCommandMapper.toCommandRequest(
             sourcePlugin = ONEBOT_PLUGIN_ID,
             incoming = OneBotIncomingMessage(
                 chatType = OneBotChatType.GROUP,
@@ -19,18 +19,18 @@ class OneBotCommandMapperTest {
             ),
         )
 
-        requireNotNull(event)
-        assertEquals(ONEBOT_PLUGIN_ID, event.sourcePlugin)
-        assertEquals("onebot", event.context.platform)
-        assertEquals(TargetKind.GROUP, event.context.chatType)
-        assertEquals("12345", event.context.chatId)
-        assertEquals("67890", event.context.senderId)
-        assertEquals("/db status", event.rawText)
+        requireNotNull(request)
+        assertEquals(ONEBOT_PLUGIN_ID, request.sourcePlugin)
+        assertEquals("onebot", request.context.platform)
+        assertEquals(TargetKind.GROUP, request.context.chatType)
+        assertEquals("12345", request.context.chatId)
+        assertEquals("67890", request.context.senderId)
+        assertEquals("/db status", request.rawText)
     }
 
     @Test
     fun `should pass non command text to central command parser`() {
-        val event = OneBotCommandMapper.toCommandEvent(
+        val request = OneBotCommandMapper.toCommandRequest(
             sourcePlugin = ONEBOT_PLUGIN_ID,
             incoming = OneBotIncomingMessage(
                 chatType = OneBotChatType.PRIVATE,
@@ -40,14 +40,14 @@ class OneBotCommandMapperTest {
             ),
         )
 
-        requireNotNull(event)
-        assertEquals(TargetKind.USER, event.context.chatType)
-        assertEquals("hello", event.rawText)
+        requireNotNull(request)
+        assertEquals(TargetKind.USER, request.context.chatType)
+        assertEquals("hello", request.rawText)
     }
 
     @Test
     fun `should ignore blank text`() {
-        val event = OneBotCommandMapper.toCommandEvent(
+        val request = OneBotCommandMapper.toCommandRequest(
             sourcePlugin = ONEBOT_PLUGIN_ID,
             incoming = OneBotIncomingMessage(
                 chatType = OneBotChatType.PRIVATE,
@@ -57,6 +57,6 @@ class OneBotCommandMapperTest {
             ),
         )
 
-        assertNull(event)
+        assertNull(request)
     }
 }

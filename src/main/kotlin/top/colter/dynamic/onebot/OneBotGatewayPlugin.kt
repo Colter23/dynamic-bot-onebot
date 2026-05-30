@@ -6,7 +6,7 @@ import top.colter.dynamic.core.config.loadOrCreate
 import top.colter.dynamic.core.data.PlatformId
 import top.colter.dynamic.core.data.TargetAddress
 import top.colter.dynamic.core.data.TargetKind
-import top.colter.dynamic.core.event.EventBus
+import top.colter.dynamic.core.command.CommandPublisher
 import top.colter.dynamic.core.plugin.CommandResultSendRequest
 import top.colter.dynamic.core.plugin.MessageDeliveryRequest
 import top.colter.dynamic.core.plugin.MessageSinkPlugin
@@ -22,7 +22,7 @@ public class OneBotGatewayPlugin : MessageSinkPlugin, ConfigurablePlugin<OneBotC
     private var pluginId: String = ONEBOT_PLUGIN_ID
     private var config: OneBotConfig = OneBotConfig()
     private var gateway: OneBotGateway = NoopOneBotGateway()
-    private lateinit var eventBus: EventBus
+    private lateinit var commandPublisher: CommandPublisher
     private var running: Boolean = false
 
     override val configId: String
@@ -36,7 +36,7 @@ public class OneBotGatewayPlugin : MessageSinkPlugin, ConfigurablePlugin<OneBotC
 
     override suspend fun onLoad(context: PluginContext) {
         pluginId = context.pluginId
-        eventBus = context.eventBus
+        commandPublisher = context.commandPublisher
         config = context.configService.loadOrCreate(pluginId) { OneBotConfig() }
         logger.info { "OneBot 配置已加载：pluginId=$pluginId" }
     }
@@ -161,12 +161,18 @@ public class OneBotGatewayPlugin : MessageSinkPlugin, ConfigurablePlugin<OneBotC
     private fun onIncomingMessage(incoming: OneBotIncomingMessage) {
         if (!running) return
 
-        val commandEvent = OneBotCommandMapper.toCommandEvent(
+        val commandRequest = OneBotCommandMapper.toCommandRequest(
             sourcePlugin = pluginId,
             incoming = incoming,
         ) ?: return
 
-        eventBus.broadcast(commandEvent)
+        runCatching {
+            kotlinx.coroutines.runBlocking {
+                commandPublisher.publish(commandRequest)
+            }
+        }.onFailure {
+            logger.warn(it) { "OneBot 命令事件提交失败：traceId=${commandRequest.traceId}" }
+        }
     }
 
     private fun OneBotConfig.endpointLabel(): String {

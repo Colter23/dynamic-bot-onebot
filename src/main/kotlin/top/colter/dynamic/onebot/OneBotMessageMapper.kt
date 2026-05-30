@@ -60,7 +60,7 @@ public object OneBotMessageMapper {
         return batches
             .map { it.toArrayMessage() }
             .filter { it.isNotEmpty() }
-            .ifEmpty { listOf(listOf(text("(empty)"))) }
+            .ifEmpty { listOf(listOf(text("（空消息）"))) }
     }
 
     public fun toArrayMessage(batches: List<MessageBatch>): List<ArrayMsg> {
@@ -71,7 +71,7 @@ public object OneBotMessageMapper {
             }
             result += segments
         }
-        return result.ifEmpty { listOf(text("(empty)")) }
+        return result.ifEmpty { listOf(text("（空消息）")) }
     }
 
     private fun MessageBatch.toArrayMessage(): List<ArrayMsg> {

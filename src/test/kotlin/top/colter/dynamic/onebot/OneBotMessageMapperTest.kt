@@ -86,7 +86,7 @@ class OneBotMessageMapperTest {
 
         assertEquals(1, segments.size)
         assertEquals(MsgType.text, segments.single().type)
-        assertEquals("(empty)", segments.single().data["text"])
+        assertEquals("（空消息）", segments.single().data["text"])
     }
 
     @Test
