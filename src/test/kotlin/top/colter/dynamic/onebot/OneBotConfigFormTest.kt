@@ -12,11 +12,15 @@ class OneBotConfigFormTest {
         val portField = OneBotConfigForm.spec.fields.single { it.path == "port" }
         val reconnectField = OneBotConfigForm.spec.fields.single { it.path == "reconnect" }
         val reconnectMaxTimesField = OneBotConfigForm.spec.fields.single { it.path == "reconnectMaxTimes" }
+        val urlField = OneBotConfigForm.spec.fields.single { it.path == "url" }
+        val hostField = OneBotConfigForm.spec.fields.single { it.path == "host" }
 
         assertTrue(tokenField.secret)
         assertTrue(tokenField.restartRequired)
         assertEquals(1, portField.min)
         assertEquals(65_535, portField.max)
+        assertEquals(listOf(OneBotConnectionMode.FORWARD_WS.name), urlField.visibleWhen?.values)
+        assertEquals(listOf(OneBotConnectionMode.REVERSE_WS.name), hostField.visibleWhen?.values)
         assertTrue(reconnectField.description.contains("仅正向 WebSocket 生效"))
         assertEquals(0, reconnectMaxTimesField.min)
         assertTrue(reconnectMaxTimesField.description.contains("0 表示不重连"))

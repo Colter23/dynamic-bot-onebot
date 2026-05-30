@@ -3,6 +3,7 @@ package top.colter.dynamic.onebot
 import top.colter.dynamic.core.config.ConfigFieldOption
 import top.colter.dynamic.core.config.ConfigFieldSpec
 import top.colter.dynamic.core.config.ConfigFieldType
+import top.colter.dynamic.core.config.ConfigFieldVisibility
 import top.colter.dynamic.core.config.ConfigFormSpec
 
 public data class OneBotConfig(
@@ -45,18 +46,18 @@ public object OneBotConfigForm {
                 label = "正向 WebSocket 地址",
                 type = ConfigFieldType.TEXT,
                 section = "连接",
-                required = true,
                 restartRequired = true,
                 restartTarget = "OneBot 插件",
+                visibleWhen = forwardWsOnly(),
             ),
             ConfigFieldSpec(
                 path = "host",
                 label = "反向 WebSocket 监听地址",
                 type = ConfigFieldType.TEXT,
                 section = "连接",
-                required = true,
                 restartRequired = true,
                 restartTarget = "OneBot 插件",
+                visibleWhen = reverseWsOnly(),
             ),
             ConfigFieldSpec(
                 path = "port",
@@ -67,6 +68,7 @@ public object OneBotConfigForm {
                 max = 65_535,
                 restartRequired = true,
                 restartTarget = "OneBot 插件",
+                visibleWhen = reverseWsOnly(),
             ),
             ConfigFieldSpec(
                 path = "accessToken",
@@ -94,6 +96,7 @@ public object OneBotConfigForm {
                 description = "仅正向 WebSocket 生效；反向 WebSocket 由 OneBot 客户端重新连接。",
                 restartRequired = true,
                 restartTarget = "OneBot 插件",
+                visibleWhen = forwardWsOnly(),
             ),
             ConfigFieldSpec(
                 path = "reconnectIntervalSeconds",
@@ -104,6 +107,7 @@ public object OneBotConfigForm {
                 min = 1,
                 restartRequired = true,
                 restartTarget = "OneBot 插件",
+                visibleWhen = forwardWsOnly(),
             ),
             ConfigFieldSpec(
                 path = "reconnectMaxTimes",
@@ -114,8 +118,19 @@ public object OneBotConfigForm {
                 min = 0,
                 restartRequired = true,
                 restartTarget = "OneBot 插件",
+                visibleWhen = forwardWsOnly(),
             ),
         ),
+    )
+
+    private fun forwardWsOnly(): ConfigFieldVisibility = ConfigFieldVisibility(
+        path = "mode",
+        values = listOf(OneBotConnectionMode.FORWARD_WS.name),
+    )
+
+    private fun reverseWsOnly(): ConfigFieldVisibility = ConfigFieldVisibility(
+        path = "mode",
+        values = listOf(OneBotConnectionMode.REVERSE_WS.name),
     )
 
     public fun validate(config: OneBotConfig) {
