@@ -21,7 +21,7 @@ internal class OneBotIncomingListener(
                 chatId = event.groupId.toString(),
                 senderId = event.userId.toString(),
                 text = event.toCommandText(),
-                botAccountId = botAccountIdProvider(),
+                botAccountId = event.botAccountId(),
                 mentionedAccountIds = event.mentionedAccountIds(),
             )
         )
@@ -35,18 +35,22 @@ internal class OneBotIncomingListener(
                 chatId = event.userId.toString(),
                 senderId = event.userId.toString(),
                 text = event.toCommandText(),
-                botAccountId = botAccountIdProvider(),
+                botAccountId = event.botAccountId(),
                 mentionedAccountIds = event.mentionedAccountIds(),
             )
         )
+    }
+
+    private fun MessageEvent.botAccountId(): String? {
+        return selfId.takeIf { it > 0 }?.toString() ?: botAccountIdProvider()
     }
 
     private fun MessageEvent.toCommandText(): String {
         return arrayMsg.orEmpty()
             .joinToString("") { it.toPlainText() }
             .takeIf { it.isNotBlank() }
-            ?: rawMessage?.takeIf { it.isNotBlank() }
-            ?: message?.takeIf { it.isNotBlank() }
+            ?: rawMessage?.takeIf { it.isNotBlank() }?.toPlainCqText()
+            ?: message?.takeIf { it.isNotBlank() }?.toPlainCqText()
             ?: ""
     }
 
@@ -59,11 +63,33 @@ internal class OneBotIncomingListener(
     }
 
     private fun MessageEvent.mentionedAccountIds(): Set<String> {
-        return arrayMsg.orEmpty()
+        val fromArray = arrayMsg.orEmpty()
             .asSequence()
             .filter { it.type == MsgType.at }
             .mapNotNull { it.data?.get("qq")?.trim() }
             .filter { it.isNotBlank() && it != "all" }
             .toCollection(linkedSetOf())
+        if (fromArray.isNotEmpty()) return fromArray
+        return rawMessage?.mentionedAccountIdsFromCq().orEmpty()
+            .ifEmpty { message?.mentionedAccountIdsFromCq().orEmpty() }
+    }
+
+    private fun String.mentionedAccountIdsFromCq(): Set<String> {
+        return CQ_AT_REGEX.findAll(this)
+            .map { it.groupValues[1].trim() }
+            .filter { it.isNotBlank() && it != "all" }
+            .toCollection(linkedSetOf())
+    }
+
+    private fun String.toPlainCqText(): String {
+        return replace(CQ_AT_REGEX) { match ->
+            val target = match.groupValues[1].trim()
+            if (target == "all") "@all" else "@$target"
+        }.replace(CQ_CODE_REGEX, "")
+    }
+
+    private companion object {
+        val CQ_AT_REGEX: Regex = Regex("""\[CQ:at,[^\]]*qq=([^,\]]+)[^\]]*]""")
+        val CQ_CODE_REGEX: Regex = Regex("""\[CQ:[^\]]+]""")
     }
 }

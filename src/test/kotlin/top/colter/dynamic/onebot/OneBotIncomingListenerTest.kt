@@ -85,6 +85,53 @@ class OneBotIncomingListenerTest {
         assertEquals("@42 https://t.bilibili.com/1@all", incoming.text)
     }
 
+    @Test
+    fun `message should extract at metadata from raw cq text fallback`() {
+        var captured: OneBotIncomingMessage? = null
+        val listener = OneBotIncomingListener(
+            onIncomingMessage = { captured = it },
+            botAccountIdProvider = { "42" },
+        )
+
+        listener.onGroupMessage(
+            GroupMessageEvent().apply {
+                groupId = 1L
+                userId = 2L
+                rawMessage = "[CQ:at,qq=42] https://t.bilibili.com/1[CQ:image,file=demo.png]"
+            }
+        )
+
+        val incoming = requireNotNull(captured)
+        assertEquals("42", incoming.botAccountId)
+        assertEquals(setOf("42"), incoming.mentionedAccountIds)
+        assertEquals("@42 https://t.bilibili.com/1", incoming.text)
+    }
+
+    @Test
+    fun `message should prefer event self id as bot account id`() {
+        var captured: OneBotIncomingMessage? = null
+        val listener = OneBotIncomingListener(
+            onIncomingMessage = { captured = it },
+            botAccountIdProvider = { "24" },
+        )
+
+        listener.onGroupMessage(
+            GroupMessageEvent().apply {
+                selfId = 42L
+                groupId = 1L
+                userId = 2L
+                arrayMsg = listOf(
+                    segment(MsgType.at, "qq" to "42"),
+                    segment(MsgType.text, "text" to " https://t.bilibili.com/1"),
+                )
+            }
+        )
+
+        val incoming = requireNotNull(captured)
+        assertEquals("42", incoming.botAccountId)
+        assertEquals(setOf("42"), incoming.mentionedAccountIds)
+    }
+
     private fun segment(type: MsgType, vararg data: Pair<String, String>): ArrayMsg {
         return ArrayMsg()
             .setType(type)
