@@ -24,6 +24,8 @@ public object OneBotCommandMapper {
                 kind = targetKind,
                 externalId = incoming.chatId,
                 senderId = incoming.senderId,
+                botAccountId = incoming.botAccountId,
+                mentionedAccountIds = incoming.mentionedAccountIds,
             ),
             rawText = incoming.text,
             traceId = UUID.randomUUID().toString(),

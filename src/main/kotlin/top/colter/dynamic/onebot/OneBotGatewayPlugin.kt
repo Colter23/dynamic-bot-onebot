@@ -9,6 +9,8 @@ import top.colter.dynamic.core.data.TargetKind
 import top.colter.dynamic.core.command.CommandPublisher
 import top.colter.dynamic.core.plugin.CommandResultSendRequest
 import top.colter.dynamic.core.plugin.MessageDeliveryRequest
+import top.colter.dynamic.core.plugin.MessageRecallRequest
+import top.colter.dynamic.core.plugin.MessageRecallResult
 import top.colter.dynamic.core.plugin.MessageSinkPlugin
 import top.colter.dynamic.core.plugin.MessageSendResult
 import top.colter.dynamic.core.plugin.MessageTargetCandidate
@@ -94,14 +96,18 @@ public class OneBotGatewayPlugin : MessageSinkPlugin, ConfigurablePlugin<OneBotC
 
         return when (val target = OneBotTarget.fromAddress(request.target)) {
             is OneBotTarget.Group -> sendMessage {
-                payloads.forEach { payload ->
-                    gateway.sendGroupMessage(target.groupId, payload)
+                var sinkMessageId: String? = null
+                for (payload in payloads) {
+                    gateway.sendGroupMessage(target.groupId, payload)?.let { sinkMessageId = it }
                 }
+                sinkMessageId
             }
             is OneBotTarget.User -> sendMessage {
-                payloads.forEach { payload ->
-                    gateway.sendPrivateMessage(target.userId, payload)
+                var sinkMessageId: String? = null
+                for (payload in payloads) {
+                    gateway.sendPrivateMessage(target.userId, payload)?.let { sinkMessageId = it }
                 }
+                sinkMessageId
             }
             is OneBotTarget.Unsupported -> {
                 logger.warn {
@@ -120,19 +126,38 @@ public class OneBotGatewayPlugin : MessageSinkPlugin, ConfigurablePlugin<OneBotC
 
         val payload = OneBotMessageMapper.toJsonArrayMessage(request.chain)
         return runCatching {
-            when (request.target.chatType) {
+            val sinkMessageId = when (request.target.chatType) {
                 TargetKind.GROUP -> gateway.sendGroupMessage(request.target.chatId.toLong(), payload)
                 TargetKind.USER -> gateway.sendPrivateMessage(request.target.chatId.toLong(), payload)
-                else -> logger.warn {
+                else -> {
+                    logger.warn {
                     "跳过 OneBot 命令结果：traceId=${request.inReplyTo}，不支持的目标=${request.target.chatType}:${request.target.chatId}"
+                    }
+                    null
                 }
             }
-            MessageSendResult.sent()
+            MessageSendResult.sent(sinkMessageId)
         }.getOrElse {
             logger.warn(it) {
                 "OneBot 命令结果发送失败：traceId=${request.inReplyTo} target=${request.target.chatType}:${request.target.chatId}"
             }
             MessageSendResult.failed(it.message ?: "OneBot 命令结果发送失败")
+        }
+    }
+
+    override suspend fun recallMessage(request: MessageRecallRequest): MessageRecallResult {
+        if (!running) return MessageRecallResult.failed("OneBot 未运行")
+        if (request.target.platformId != platformId) {
+            return MessageRecallResult.failed("目标平台不是 OneBot")
+        }
+        return runCatching {
+            gateway.recallMessage(request.sinkMessageId)
+            MessageRecallResult.recalled()
+        }.getOrElse {
+            logger.debug(it) {
+                "OneBot 消息撤回失败：target=${request.target.externalId} sinkMessageId=${request.sinkMessageId}"
+            }
+            MessageRecallResult.failed(it.message ?: "OneBot 消息撤回失败")
         }
     }
 
@@ -149,10 +174,9 @@ public class OneBotGatewayPlugin : MessageSinkPlugin, ConfigurablePlugin<OneBotC
         }
     }
 
-    private suspend fun sendMessage(action: suspend () -> Unit): MessageSendResult {
+    private suspend fun sendMessage(action: suspend () -> String?): MessageSendResult {
         return runCatching {
-            action()
-            MessageSendResult.sent()
+            MessageSendResult.sent(action())
         }.getOrElse {
             MessageSendResult.failed(it.message ?: "OneBot 消息发送失败")
         }

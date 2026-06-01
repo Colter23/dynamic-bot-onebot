@@ -11,7 +11,7 @@ class OneBotIncomingListenerTest {
     @Test
     fun `group message should prefer array plain text over raw cq text`() {
         var captured: OneBotIncomingMessage? = null
-        val listener = OneBotIncomingListener { captured = it }
+        val listener = OneBotIncomingListener(onIncomingMessage = { captured = it })
         val event = GroupMessageEvent().apply {
             groupId = 12345L
             userId = 67890L
@@ -34,7 +34,7 @@ class OneBotIncomingListenerTest {
     @Test
     fun `message should fall back to raw message and message fields`() {
         var captured: OneBotIncomingMessage? = null
-        val listener = OneBotIncomingListener { captured = it }
+        val listener = OneBotIncomingListener(onIncomingMessage = { captured = it })
 
         listener.onGroupMessage(
             GroupMessageEvent().apply {
@@ -57,6 +57,32 @@ class OneBotIncomingListenerTest {
             }
         )
         assertEquals("/db message", requireNotNull(captured).text)
+    }
+
+    @Test
+    fun `message should preserve mentioned ids and bot account id`() {
+        var captured: OneBotIncomingMessage? = null
+        val listener = OneBotIncomingListener(
+            onIncomingMessage = { captured = it },
+            botAccountIdProvider = { "42" },
+        )
+
+        listener.onGroupMessage(
+            GroupMessageEvent().apply {
+                groupId = 1L
+                userId = 2L
+                arrayMsg = listOf(
+                    segment(MsgType.at, "qq" to "42"),
+                    segment(MsgType.text, "text" to " https://t.bilibili.com/1"),
+                    segment(MsgType.at, "qq" to "all"),
+                )
+            }
+        )
+
+        val incoming = requireNotNull(captured)
+        assertEquals("42", incoming.botAccountId)
+        assertEquals(setOf("42"), incoming.mentionedAccountIds)
+        assertEquals("@42 https://t.bilibili.com/1@all", incoming.text)
     }
 
     private fun segment(type: MsgType, vararg data: Pair<String, String>): ArrayMsg {

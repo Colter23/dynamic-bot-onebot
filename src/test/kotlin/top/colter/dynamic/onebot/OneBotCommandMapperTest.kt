@@ -16,6 +16,8 @@ class OneBotCommandMapperTest {
                 chatId = "12345",
                 senderId = "67890",
                 text = "/db status",
+                botAccountId = "42",
+                mentionedAccountIds = setOf("42"),
             ),
         )
 
@@ -25,6 +27,8 @@ class OneBotCommandMapperTest {
         assertEquals(TargetKind.GROUP, request.context.chatType)
         assertEquals("12345", request.context.chatId)
         assertEquals("67890", request.context.senderId)
+        assertEquals("42", request.context.botAccountId)
+        assertEquals(setOf("42"), request.context.mentionedAccountIds)
         assertEquals("/db status", request.rawText)
     }
 

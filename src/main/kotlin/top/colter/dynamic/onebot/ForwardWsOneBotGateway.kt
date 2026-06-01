@@ -24,20 +24,33 @@ internal class ForwardWsOneBotGateway(
                 botId = config.botId
             }
         }
-        client = OneBotClient.create(botConfig, OneBotIncomingListener(onIncomingMessage)).open()
+        client = OneBotClient.create(
+            botConfig,
+            OneBotIncomingListener(
+                onIncomingMessage = onIncomingMessage,
+                botAccountIdProvider = { runtimeBotAccountId() },
+            ),
+        ).open()
     }
 
-    override suspend fun sendPrivateMessage(userId: Long, message: JsonArray) {
-        withContext(Dispatchers.IO) {
+    override suspend fun sendPrivateMessage(userId: Long, message: JsonArray): String? {
+        return withContext(Dispatchers.IO) {
             val action = requireBot().sendPrivateMsg(userId, message, false)
             action.requireSendAccepted("send_private_msg", userId)
         }
     }
 
-    override suspend fun sendGroupMessage(groupId: Long, message: JsonArray) {
-        withContext(Dispatchers.IO) {
+    override suspend fun sendGroupMessage(groupId: Long, message: JsonArray): String? {
+        return withContext(Dispatchers.IO) {
             val action = requireBot().sendGroupMsg(groupId, message, false)
             action.requireSendAccepted("send_group_msg", groupId)
+        }
+    }
+
+    override suspend fun recallMessage(messageId: String) {
+        withContext(Dispatchers.IO) {
+            val id = messageId.toIntOrNull() ?: error("OneBot 消息 ID 无效：$messageId")
+            requireBot().deleteMsg(id).requireActionAccepted("delete_msg")
         }
     }
 
@@ -76,5 +89,10 @@ internal class ForwardWsOneBotGateway(
 
     private fun requireBot(): Bot {
         return client?.bot ?: error("OneBot 正向连接尚未就绪")
+    }
+
+    private fun runtimeBotAccountId(): String? {
+        return config.botId.takeIf { it > 0 }?.toString()
+            ?: client?.bot?.selfId?.takeIf { it > 0 }?.toString()
     }
 }

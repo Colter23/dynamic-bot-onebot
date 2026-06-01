@@ -2,6 +2,8 @@ package top.colter.dynamic.onebot
 
 import cn.evole.onebot.sdk.action.misc.ActionData
 import cn.evole.onebot.sdk.action.misc.ActionList
+import cn.evole.onebot.sdk.action.misc.ActionRaw
+import cn.evole.onebot.sdk.entity.MsgId
 import java.util.LinkedList
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -24,6 +26,18 @@ class OneBotGatewayTest {
         }
 
         action.requireSendAccepted("send_private_msg", 123)
+    }
+
+    @Test
+    fun `send accepted should return message id when present`() {
+        val action = ActionData<MsgId>().apply {
+            status = "ok"
+            data = MsgId(321)
+        }
+
+        val messageId = action.requireSendAccepted("send_private_msg", 123)
+
+        assertEquals("321", messageId)
     }
 
     @Test
@@ -58,6 +72,19 @@ class OneBotGatewayTest {
         val data = action.requireQueryOk("get_group_list")
 
         assertEquals(listOf("group"), data)
+    }
+
+    @Test
+    fun `action accepted should reject failed recall response`() {
+        val action = ActionRaw().apply {
+            status = "failed"
+            retCode = 1400
+        }
+
+        val error = assertFailsWith<IllegalStateException> {
+            action.requireActionAccepted("delete_msg")
+        }
+        assertTrue(error.message.orEmpty().contains("OneBot"))
     }
 
     @Test

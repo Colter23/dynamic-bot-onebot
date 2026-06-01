@@ -10,6 +10,7 @@ import cn.evole.onebot.sdk.event.message.PrivateMessageEvent
 
 internal class OneBotIncomingListener(
     private val onIncomingMessage: (OneBotIncomingMessage) -> Unit,
+    private val botAccountIdProvider: () -> String? = { null },
 ) : Listener {
 
     @SubscribeEvent(internal = false)
@@ -20,6 +21,8 @@ internal class OneBotIncomingListener(
                 chatId = event.groupId.toString(),
                 senderId = event.userId.toString(),
                 text = event.toCommandText(),
+                botAccountId = botAccountIdProvider(),
+                mentionedAccountIds = event.mentionedAccountIds(),
             )
         )
     }
@@ -32,6 +35,8 @@ internal class OneBotIncomingListener(
                 chatId = event.userId.toString(),
                 senderId = event.userId.toString(),
                 text = event.toCommandText(),
+                botAccountId = botAccountIdProvider(),
+                mentionedAccountIds = event.mentionedAccountIds(),
             )
         )
     }
@@ -51,5 +56,14 @@ internal class OneBotIncomingListener(
             MsgType.at -> data?.get("qq")?.let { if (it == "all") "@all" else "@$it" }.orEmpty()
             else -> ""
         }
+    }
+
+    private fun MessageEvent.mentionedAccountIds(): Set<String> {
+        return arrayMsg.orEmpty()
+            .asSequence()
+            .filter { it.type == MsgType.at }
+            .mapNotNull { it.data?.get("qq")?.trim() }
+            .filter { it.isNotBlank() && it != "all" }
+            .toCollection(linkedSetOf())
     }
 }

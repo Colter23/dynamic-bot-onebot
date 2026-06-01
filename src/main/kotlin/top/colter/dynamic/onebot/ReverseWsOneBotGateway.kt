@@ -41,7 +41,10 @@ internal class ReverseWsOneBotGateway(
                     botId = config.botId
                 }
             },
-            OneBotIncomingListener(onIncomingMessage),
+            OneBotIncomingListener(
+                onIncomingMessage = onIncomingMessage,
+                botAccountIdProvider = { runtimeBotAccountId() },
+            ),
         )
         client = runtimeClient
 
@@ -107,17 +110,24 @@ internal class ReverseWsOneBotGateway(
         }.also { it.start() }
     }
 
-    override suspend fun sendPrivateMessage(userId: Long, message: JsonArray) {
-        withContext(Dispatchers.IO) {
+    override suspend fun sendPrivateMessage(userId: Long, message: JsonArray): String? {
+        return withContext(Dispatchers.IO) {
             val action = requireBot().sendPrivateMsg(userId, message, false)
             action.requireSendAccepted("send_private_msg", userId)
         }
     }
 
-    override suspend fun sendGroupMessage(groupId: Long, message: JsonArray) {
-        withContext(Dispatchers.IO) {
+    override suspend fun sendGroupMessage(groupId: Long, message: JsonArray): String? {
+        return withContext(Dispatchers.IO) {
             val action = requireBot().sendGroupMsg(groupId, message, false)
             action.requireSendAccepted("send_group_msg", groupId)
+        }
+    }
+
+    override suspend fun recallMessage(messageId: String) {
+        withContext(Dispatchers.IO) {
+            val id = messageId.toIntOrNull() ?: error("OneBot 消息 ID 无效：$messageId")
+            requireBot().deleteMsg(id).requireActionAccepted("delete_msg")
         }
     }
 
@@ -211,5 +221,10 @@ internal class ReverseWsOneBotGateway(
             .firstOrNull { (key, _) -> key.equals(name, ignoreCase = true) }
             ?.second
             ?.let { URLDecoder.decode(it, StandardCharsets.UTF_8) }
+    }
+
+    private fun runtimeBotAccountId(): String? {
+        return config.botId.takeIf { it > 0 }?.toString()
+            ?: activeBot.get()?.selfId?.takeIf { it > 0 }?.toString()
     }
 }
