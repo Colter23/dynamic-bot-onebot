@@ -174,6 +174,17 @@ public class OneBotGatewayPlugin : MessageSinkPlugin, ConfigurablePlugin<OneBotC
         }
     }
 
+    override suspend fun resolveMessageTarget(address: TargetAddress): MessageTargetCandidate? {
+        if (address.platformId != platformId) return null
+        if (address.kind !in supportedTargetKinds) return null
+        return listMessageTargets(address.kind).firstOrNull { it.address == address }
+            ?: MessageTargetCandidate(
+                address = address,
+                name = address.externalId,
+                avatar = oneBotTargetAvatar(address.kind, address.externalId),
+            )
+    }
+
     private suspend fun sendMessage(action: suspend () -> String?): MessageSendResult {
         return runCatching {
             MessageSendResult.sent(action())
@@ -214,6 +225,7 @@ public class OneBotGatewayPlugin : MessageSinkPlugin, ConfigurablePlugin<OneBotC
                 externalId = id,
             ),
             name = name,
+            avatar = oneBotTargetAvatar(kind, id),
         )
     }
 }
