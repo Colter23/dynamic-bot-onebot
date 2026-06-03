@@ -5,6 +5,7 @@ import top.colter.dynamic.core.config.ConfigFieldSpec
 import top.colter.dynamic.core.config.ConfigFieldType
 import top.colter.dynamic.core.config.ConfigFieldVisibility
 import top.colter.dynamic.core.config.ConfigFormSpec
+import top.colter.dynamic.core.config.ConfigNumberKind
 
 public data class OneBotConfig(
     val mode: OneBotConnectionMode = OneBotConnectionMode.FORWARD_WS,
@@ -66,6 +67,7 @@ public object OneBotConfigForm {
                 section = "连接",
                 min = 1,
                 max = 65_535,
+                numberKind = ConfigNumberKind.INTEGER,
                 restartRequired = true,
                 restartTarget = "OneBot 插件",
                 visibleWhen = reverseWsOnly(),
@@ -85,6 +87,7 @@ public object OneBotConfigForm {
                 type = ConfigFieldType.NUMBER,
                 section = "连接",
                 min = 0,
+                numberKind = ConfigNumberKind.INTEGER,
                 restartRequired = true,
                 restartTarget = "OneBot 插件",
             ),
@@ -105,6 +108,7 @@ public object OneBotConfigForm {
                 section = "重连",
                 description = "仅正向 WebSocket 生效。",
                 min = 1,
+                numberKind = ConfigNumberKind.INTEGER,
                 restartRequired = true,
                 restartTarget = "OneBot 插件",
                 visibleWhen = forwardWsOnly(),
@@ -116,6 +120,7 @@ public object OneBotConfigForm {
                 section = "重连",
                 description = "仅正向 WebSocket 生效；0 表示不重连。",
                 min = 0,
+                numberKind = ConfigNumberKind.INTEGER,
                 restartRequired = true,
                 restartTarget = "OneBot 插件",
                 visibleWhen = forwardWsOnly(),
