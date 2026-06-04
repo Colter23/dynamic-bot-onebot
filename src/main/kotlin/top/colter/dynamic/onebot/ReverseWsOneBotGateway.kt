@@ -25,7 +25,6 @@ internal class ReverseWsOneBotGateway(
 
     private val activeBots = ConcurrentHashMap<String, Bot>()
     private val activeChannels = ConcurrentHashMap<String, WebSocket>()
-    private val accountBySelfId = config.enabledAccounts().associateBy { it.accountId.toLong() }
 
     @Volatile
     private var client: OneBotClient? = null
@@ -50,22 +49,21 @@ internal class ReverseWsOneBotGateway(
                     return
                 }
 
-                val selfId = ConnectionUtils.parseSelfId(handshake)
-                val account = accountBySelfId[selfId]
-                if (account == null) {
-                    logger.warn { "拒绝 OneBot 反向连接：selfId=$selfId，原因=未配置该账号" }
-                    conn.close(1008, "unexpected_self_id")
+                val accountId = ConnectionUtils.parseSelfId(handshake)
+                    .takeIf { it > 0 }
+                    ?.toString()
+                if (accountId == null) {
+                    logger.warn { "拒绝 OneBot 反向连接：remote=${conn.remoteSocketAddress}，原因=无法识别 selfId" }
+                    conn.close(1008, "missing_self_id")
                     return
                 }
 
-                activeChannels.put(account.accountId, conn)
+                activeChannels.put(accountId, conn)
                     ?.takeIf { previous -> previous != conn && previous.isOpen }
                     ?.close(1000, "replaced_by_new_reverse_connection")
-                activeBots[account.accountId] = Bot(conn, runtimeClient.actionFactory)
+                activeBots[accountId] = Bot(conn, runtimeClient.actionFactory)
 
-                logger.info {
-                    "OneBot 反向连接已建立：accountId=${account.accountId}，selfId=$selfId，remote=${conn.remoteSocketAddress}"
-                }
+                logger.info { "OneBot 反向连接已建立：accountId=$accountId，remote=${conn.remoteSocketAddress}" }
             }
 
             override fun onMessage(conn: WebSocket, message: String) {
@@ -97,7 +95,11 @@ internal class ReverseWsOneBotGateway(
         }.also { it.start() }
     }
 
-    override fun availableAccountIds(): Set<String> = activeBots.keys.toSet()
+    override fun availableAccounts(): List<OneBotRuntimeAccount> {
+        return activeBots.keys
+            .map { accountId -> OneBotRuntimeAccount(accountId = accountId) }
+            .sortedBy { it.accountId }
+    }
 
     override suspend fun sendPrivateMessage(accountId: String, userId: Long, message: JsonArray): String? {
         return withContext(Dispatchers.IO) {
@@ -213,7 +215,9 @@ internal class ReverseWsOneBotGateway(
                 part.take(index) to part.substring(index + 1)
             }
             .firstOrNull { (key, _) -> key.equals(name, ignoreCase = true) }
-            ?.second
+            .secondOrNull()
             ?.let { URLDecoder.decode(it, StandardCharsets.UTF_8) }
     }
+
+    private fun Pair<String, String>?.secondOrNull(): String? = this?.second
 }

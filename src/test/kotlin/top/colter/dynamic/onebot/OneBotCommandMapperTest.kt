@@ -23,7 +23,7 @@ class OneBotCommandMapperTest {
 
         requireNotNull(request)
         assertEquals(ONEBOT_PLUGIN_ID, request.sourcePlugin)
-        assertEquals("onebot", request.context.platform)
+        assertEquals("qq", request.context.platform)
         assertEquals(TargetKind.GROUP, request.context.chatType)
         assertEquals("12345", request.context.chatId)
         assertEquals("67890", request.context.senderId)

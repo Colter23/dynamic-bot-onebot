@@ -154,7 +154,7 @@ class OneBotMessageMapperTest {
 
     private fun demoTarget(kind: TargetKind, externalId: String): TargetAddress {
         return TargetAddress.of(
-            platformId = "onebot",
+            platformId = "qq",
             kind = kind,
             externalId = externalId,
         )

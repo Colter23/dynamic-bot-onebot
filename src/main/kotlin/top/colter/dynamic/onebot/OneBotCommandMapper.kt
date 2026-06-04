@@ -20,7 +20,7 @@ public object OneBotCommandMapper {
         return CommandPublishRequest(
             sourcePlugin = sourcePlugin,
             context = CommandContext.of(
-                platform = "onebot",
+                platform = "qq",
                 kind = targetKind,
                 externalId = incoming.chatId,
                 senderId = incoming.senderId,

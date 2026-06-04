@@ -12,6 +12,10 @@ repositories {
     maven(url = "https://maven.nova-committee.cn/releases/")
 }
 
+configurations.named("testRuntimeClasspath") {
+    resolutionStrategy.force("org.slf4j:slf4j-api:2.0.13")
+}
+
 dependencies {
     val log4jVersion = "2.25.4"
 
@@ -29,6 +33,7 @@ dependencies {
 
     testImplementation(kotlin("test"))
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
+    testRuntimeOnly("org.slf4j:slf4j-api:2.0.13")
     testRuntimeOnly("ch.qos.logback:logback-classic:1.5.16")
     testRuntimeOnly("org.apache.logging.log4j:log4j-to-slf4j:$log4jVersion")
 }

@@ -14,14 +14,14 @@ import top.colter.dynamic.core.plugin.MessageDeliveryRequest
 import top.colter.dynamic.core.plugin.MessageRecallRequest
 import top.colter.dynamic.core.plugin.MessageRecallResult
 import top.colter.dynamic.core.plugin.MessageSendResult
-import top.colter.dynamic.core.plugin.MessageSinkAccount
-import top.colter.dynamic.core.plugin.MessageSinkAccountState
-import top.colter.dynamic.core.plugin.MessageSinkRoutingPolicy
+import top.colter.dynamic.core.plugin.MessageSinkRoute
+import top.colter.dynamic.core.plugin.MessageSinkRouteState
 import top.colter.dynamic.core.plugin.MessageTargetCandidate
 import top.colter.dynamic.core.plugin.PluginContext
 import top.colter.dynamic.core.tools.loggerFor
 
 private val logger = loggerFor<OneBotGatewayPlugin>()
+private val QQ_PLATFORM_ID = PlatformId.of("qq")
 
 public class OneBotGatewayPlugin : AccountRoutedMessageSinkPlugin, ConfigurablePlugin<OneBotConfig> {
 
@@ -34,18 +34,21 @@ public class OneBotGatewayPlugin : AccountRoutedMessageSinkPlugin, ConfigurableP
     override val configId: String
         get() = pluginId
     override val configName: String = "OneBot 网关"
-    override val configDescription: String = "OneBot 连接、账号路由与消息投递配置。"
+    override val configDescription: String = "OneBot 连接与消息投递配置。"
     override val configClass = OneBotConfig::class
     override val configFormSpec = OneBotConfigForm.spec
-    override val platformId: PlatformId = PlatformId.of("onebot")
+
+    override val transportId: String = "onebot"
+    override val transportName: String = "OneBot"
+    override val supportedTargetPlatforms: Set<PlatformId> = setOf(QQ_PLATFORM_ID)
     override val supportedTargetKinds: Set<TargetKind> = setOf(TargetKind.GROUP, TargetKind.USER)
 
     override suspend fun onLoad(context: PluginContext) {
         pluginId = context.pluginId
         commandPublisher = context.commandPublisher
-        config = context.configService.loadOrCreate(pluginId, OneBotConfigForm.migrations) { OneBotConfig() }
+        config = context.configService.loadOrCreate(pluginId) { OneBotConfig() }
         OneBotConfigForm.validate(config)
-        logger.info { "OneBot 配置已加载：pluginId=$pluginId，accounts=${config.enabledAccounts().size}" }
+        logger.info { "OneBot 配置已加载：pluginId=$pluginId，mode=${config.mode}" }
     }
 
     override suspend fun onStart() {
@@ -63,9 +66,7 @@ public class OneBotGatewayPlugin : AccountRoutedMessageSinkPlugin, ConfigurableP
         }
         running = true
 
-        logger.info {
-            "OneBot 已启动：mode=${config.mode} endpoint=${config.endpointLabel()} accounts=${config.enabledAccounts().joinToString { it.accountId }}"
-        }
+        logger.info { "OneBot 已启动：mode=${config.mode} endpoint=${config.endpointLabel()}" }
     }
 
     override suspend fun onStop() {
@@ -94,53 +95,33 @@ public class OneBotGatewayPlugin : AccountRoutedMessageSinkPlugin, ConfigurableP
         )
     }
 
-    override fun routingPolicy(): MessageSinkRoutingPolicy = config.routingPolicy
-
-    override suspend fun listMessageSinkAccounts(target: TargetAddress?): List<MessageSinkAccount> {
-        if (target != null) {
-            if (target.platformId != platformId) return emptyList()
-            if (target.kind !in supportedTargetKinds) return emptyList()
+    override suspend fun listMessageSinkRoutes(target: TargetAddress?): List<MessageSinkRoute> {
+        if (target != null && !supportsTarget(target)) return emptyList()
+        val state = if (running) MessageSinkRouteState.READY else MessageSinkRouteState.UNAVAILABLE
+        return gateway.availableAccounts().map { account ->
+            account.toRoute(state)
         }
-        val readyAccountIds = if (running) gateway.availableAccountIds() else emptySet()
-        return config.normalizedAccounts().map { account ->
-            MessageSinkAccount(
-                accountId = account.accountId,
-                name = account.displayName,
-                enabled = account.enabled,
-                state = if (account.enabled && account.accountId in readyAccountIds) {
-                    MessageSinkAccountState.READY
-                } else {
-                    MessageSinkAccountState.UNAVAILABLE
-                },
-                role = account.role,
-            )
-        }
-    }
-
-    override suspend fun sendMessage(request: MessageDeliveryRequest): MessageSendResult {
-        val accountId = request.target.accountId?.trim()?.takeIf { it.isNotBlank() }
-            ?: firstReadyAccountId()
-            ?: return MessageSendResult.failed("OneBot 无可用账号")
-        return sendMessage(request, accountId)
     }
 
     override suspend fun sendMessage(
         request: MessageDeliveryRequest,
-        accountId: String,
+        routeId: String,
     ): MessageSendResult {
         if (!running) return MessageSendResult.failed("OneBot 未运行")
-        if (accountId !in config.enabledAccounts().map { it.accountId }) {
-            return MessageSendResult.failed("OneBot 账号未配置：$accountId", retryable = false)
+        if (!supportsTarget(request.target)) {
+            return MessageSendResult.failed("目标平台不是 QQ 或类型不受支持", retryable = false)
         }
+        val accountId = accountIdFromRoute(routeId)
+            ?: return MessageSendResult.failed("OneBot 路线 ID 无效：$routeId", retryable = false)
 
         val message = request.message
         val payloads = OneBotMessageMapper.toJsonArrayMessages(message)
 
         return when (val target = OneBotTarget.fromAddress(request.target)) {
-            is OneBotTarget.Group -> sendPayloads(accountId, payloads, "OneBot 消息发送失败") { payload ->
+            is OneBotTarget.Group -> sendPayloads(routeId, accountId, payloads, "OneBot 消息发送失败") { payload ->
                 gateway.sendGroupMessage(accountId, target.groupId, payload)
             }
-            is OneBotTarget.User -> sendPayloads(accountId, payloads, "OneBot 消息发送失败") { payload ->
+            is OneBotTarget.User -> sendPayloads(routeId, accountId, payloads, "OneBot 消息发送失败") { payload ->
                 gateway.sendPrivateMessage(accountId, target.userId, payload)
             }
             is OneBotTarget.Unsupported -> {
@@ -152,21 +133,16 @@ public class OneBotGatewayPlugin : AccountRoutedMessageSinkPlugin, ConfigurableP
         }
     }
 
-    override suspend fun sendCommandResult(request: CommandResultSendRequest): MessageSendResult {
-        val accountId = request.target.address.accountId?.trim()?.takeIf { it.isNotBlank() }
-            ?: firstReadyAccountId()
-            ?: return MessageSendResult.failed("OneBot 无可用账号")
-        return sendCommandResult(request, accountId)
-    }
-
     override suspend fun sendCommandResult(
         request: CommandResultSendRequest,
-        accountId: String,
+        routeId: String,
     ): MessageSendResult {
         if (!running) return MessageSendResult.failed("OneBot 未运行")
-        if (request.target.address.platformId != platformId) {
-            return MessageSendResult.failed("目标平台不是 OneBot", retryable = false)
+        if (!supportsTarget(request.target.address)) {
+            return MessageSendResult.failed("目标平台不是 QQ 或类型不受支持", retryable = false)
         }
+        val accountId = accountIdFromRoute(routeId)
+            ?: return MessageSendResult.failed("OneBot 路线 ID 无效：$routeId", retryable = false)
 
         val payload = OneBotMessageMapper.toJsonArrayMessage(request.chain)
         return runCatching {
@@ -180,34 +156,28 @@ public class OneBotGatewayPlugin : AccountRoutedMessageSinkPlugin, ConfigurableP
                     return MessageSendResult.failed("OneBot 不支持目标类型：${request.target.chatType}", retryable = false)
                 }
             }
-            MessageSendResult.sent(sinkMessageId, sinkAccountId = accountId)
+            MessageSendResult.sent(sinkMessageId, sinkRouteId = routeId, sinkAccountId = accountId)
         }.getOrElse {
             logger.warn(it) {
-                "OneBot 命令结果发送失败：traceId=${request.inReplyTo} target=${request.target.chatType}:${request.target.chatId} accountId=$accountId"
+                "OneBot 命令结果发送失败：traceId=${request.inReplyTo} target=${request.target.chatType}:${request.target.chatId} routeId=$routeId"
             }
             MessageSendResult.failed(it.message ?: "OneBot 命令结果发送失败")
         }
     }
 
-    override suspend fun recallMessage(request: MessageRecallRequest): MessageRecallResult {
-        val accountId = request.sinkAccountId?.trim()?.takeIf { it.isNotBlank() }
-            ?: request.target.accountId?.trim()?.takeIf { it.isNotBlank() }
-            ?: firstReadyAccountId()
-            ?: return MessageRecallResult.failed("OneBot 无可用账号")
-        return recallMessage(request, accountId)
-    }
-
-    override suspend fun recallMessage(request: MessageRecallRequest, accountId: String): MessageRecallResult {
+    override suspend fun recallMessage(request: MessageRecallRequest, routeId: String): MessageRecallResult {
         if (!running) return MessageRecallResult.failed("OneBot 未运行")
-        if (request.target.platformId != platformId) {
-            return MessageRecallResult.failed("目标平台不是 OneBot")
+        if (!supportsTarget(request.target)) {
+            return MessageRecallResult.failed("目标平台不是 QQ 或类型不受支持")
         }
+        val accountId = accountIdFromRoute(routeId)
+            ?: return MessageRecallResult.failed("OneBot 路线 ID 无效：$routeId")
         return runCatching {
             gateway.recallMessage(accountId, request.sinkMessageId)
             MessageRecallResult.recalled()
         }.getOrElse {
             logger.debug(it) {
-                "OneBot 消息撤回失败：target=${request.target.externalId} sinkMessageId=${request.sinkMessageId} accountId=$accountId"
+                "OneBot 消息撤回失败：target=${request.target.externalId} sinkMessageId=${request.sinkMessageId} routeId=$routeId"
             }
             MessageRecallResult.failed(it.message ?: "OneBot 消息撤回失败")
         }
@@ -216,8 +186,8 @@ public class OneBotGatewayPlugin : AccountRoutedMessageSinkPlugin, ConfigurableP
     override suspend fun listMessageTargets(kind: TargetKind?): List<MessageTargetCandidate> {
         if (!running) return emptyList()
         val kinds = kind?.let { setOf(it) } ?: supportedTargetKinds
-        val accounts = config.enabledAccounts().associateBy { it.accountId }
-        val accountIds = gateway.availableAccountIds().filter { it in accounts.keys }
+        val accounts = gateway.availableAccounts().associateBy { it.accountId }
+        val accountIds = accounts.keys.sorted()
         val targets = mutableListOf<MessageTargetCandidate>()
 
         if (TargetKind.GROUP in kinds) {
@@ -230,21 +200,21 @@ public class OneBotGatewayPlugin : AccountRoutedMessageSinkPlugin, ConfigurableP
                 gateway.listFriends(accountId)
             }
         }
-        return targets.distinctBy { it.address.stableValue() }
+        return targets.sortedWith(compareBy<MessageTargetCandidate> { it.address.kind.name }.thenBy { it.name })
     }
 
     override suspend fun resolveMessageTarget(address: TargetAddress): MessageTargetCandidate? {
-        if (address.platformId != platformId) return null
-        if (address.kind !in supportedTargetKinds) return null
-        return listMessageTargets(address.kind).firstOrNull { it.address == address }
+        if (!supportsTarget(address)) return null
+        return listMessageTargets(address.kind).firstOrNull { it.address.stableValue() == address.stableValue() }
             ?: MessageTargetCandidate(
-                address = address,
+                address = address.copy(accountId = address.accountId?.trim()?.takeIf { it.isNotBlank() }),
                 name = address.externalId,
                 avatar = oneBotTargetAvatar(address.kind, address.externalId),
             )
     }
 
     private suspend fun sendPayloads(
+        routeId: String,
         accountId: String,
         payloads: List<JsonArray>,
         failureLabel: String,
@@ -257,7 +227,7 @@ public class OneBotGatewayPlugin : AccountRoutedMessageSinkPlugin, ConfigurableP
                 send(payload)?.let { sinkMessageId = it }
                 sentCount += 1
             }
-            MessageSendResult.sent(sinkMessageId, sinkAccountId = accountId)
+            MessageSendResult.sent(sinkMessageId, sinkRouteId = routeId, sinkAccountId = accountId)
         }.getOrElse {
             MessageSendResult.failed(
                 reason = it.message ?: failureLabel,
@@ -269,7 +239,7 @@ public class OneBotGatewayPlugin : AccountRoutedMessageSinkPlugin, ConfigurableP
 
     private suspend fun listTargetsForAccounts(
         accountIds: List<String>,
-        accounts: Map<String, OneBotAccountConfig>,
+        accounts: Map<String, OneBotRuntimeAccount>,
         kind: TargetKind,
         list: suspend (String) -> List<OneBotTargetCandidate>,
     ): List<MessageTargetCandidate> {
@@ -284,35 +254,46 @@ public class OneBotGatewayPlugin : AccountRoutedMessageSinkPlugin, ConfigurableP
                 )
             }
         }
-        val autoTargets = perAccount
+        return perAccount
             .groupBy { it.id }
             .values
             .map { candidates ->
                 val first = candidates.first()
-                first.toMessageTarget(kind, accountId = null, suffix = "自动选择")
+                MessageTargetCandidate(
+                    address = TargetAddress.of(
+                        platformId = QQ_PLATFORM_ID.value,
+                        kind = kind,
+                        externalId = first.id,
+                    ),
+                    name = first.name,
+                    avatar = oneBotTargetAvatar(kind, first.id),
+                    sources = candidates
+                        .mapNotNull { candidate -> accounts[candidate.accountId]?.toRoute()?.toTargetSource() }
+                        .distinctBy { it.routeId },
+                )
             }
-        val accountTargets = perAccount.map { candidate ->
-            val accountName = accounts[candidate.accountId]?.displayName ?: candidate.accountId
-            candidate.toMessageTarget(kind, accountId = candidate.accountId, suffix = accountName)
-        }
-        return autoTargets + accountTargets
     }
 
-    private fun OneBotTargetCandidate.toMessageTarget(
-        kind: TargetKind,
-        accountId: String?,
-        suffix: String,
-    ): MessageTargetCandidate {
-        return MessageTargetCandidate(
-            address = TargetAddress.of(
-                platformId = platformId.value,
-                kind = kind,
-                externalId = id,
-                accountId = accountId,
-            ),
-            name = "$name · $suffix",
-            avatar = oneBotTargetAvatar(kind, id),
-        )
+    private fun OneBotRuntimeAccount.toRoute(
+        state: MessageSinkRouteState = MessageSinkRouteState.READY,
+    ): MessageSinkRoute = MessageSinkRoute(
+        routeId = routeId(accountId),
+        transportId = transportId,
+        transportName = transportName,
+        targetPlatformId = QQ_PLATFORM_ID,
+        accountId = accountId,
+        accountName = name,
+        enabled = true,
+        state = state,
+    )
+
+    private fun routeId(accountId: String): String = "$transportId:${QQ_PLATFORM_ID.value}:$accountId"
+
+    private fun accountIdFromRoute(routeId: String): String? {
+        val prefix = "$transportId:${QQ_PLATFORM_ID.value}:"
+        return routeId.removePrefix(prefix)
+            .takeIf { it != routeId }
+            ?.takeIf { it.isNotBlank() }
     }
 
     private fun onIncomingMessage(incoming: OneBotIncomingMessage) {
@@ -332,14 +313,9 @@ public class OneBotGatewayPlugin : AccountRoutedMessageSinkPlugin, ConfigurableP
         }
     }
 
-    private fun firstReadyAccountId(): String? {
-        val available = gateway.availableAccountIds()
-        return config.enabledAccounts().firstOrNull { it.accountId in available }?.accountId
-    }
-
     private fun OneBotConfig.endpointLabel(): String {
         return when (mode) {
-            OneBotConnectionMode.FORWARD_WS -> enabledAccounts().joinToString { "${it.accountId}@${it.url}" }
+            OneBotConnectionMode.FORWARD_WS -> enabledConnections().joinToString { it.url }
             OneBotConnectionMode.REVERSE_WS -> "$host:$port"
         }
     }

@@ -28,9 +28,14 @@ public data class OneBotTargetCandidate(
     val accountId: String,
 )
 
+public data class OneBotRuntimeAccount(
+    val accountId: String,
+    val name: String = "QQ机器人 $accountId",
+)
+
 public interface OneBotGateway {
     public fun connect(onIncomingMessage: (OneBotIncomingMessage) -> Unit)
-    public fun availableAccountIds(): Set<String>
+    public fun availableAccounts(): List<OneBotRuntimeAccount>
     public suspend fun sendPrivateMessage(accountId: String, userId: Long, message: JsonArray): String?
     public suspend fun sendGroupMessage(accountId: String, groupId: Long, message: JsonArray): String?
     public suspend fun recallMessage(accountId: String, messageId: String)
@@ -43,7 +48,7 @@ public class NoopOneBotGateway : OneBotGateway {
     override fun connect(onIncomingMessage: (OneBotIncomingMessage) -> Unit) {
     }
 
-    override fun availableAccountIds(): Set<String> = emptySet()
+    override fun availableAccounts(): List<OneBotRuntimeAccount> = emptyList()
 
     override suspend fun sendPrivateMessage(accountId: String, userId: Long, message: JsonArray): String? = null
 

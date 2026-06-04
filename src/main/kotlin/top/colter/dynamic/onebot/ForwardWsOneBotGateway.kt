@@ -11,29 +11,42 @@ internal class ForwardWsOneBotGateway(
     private val config: OneBotConfig,
 ) : OneBotGateway {
 
-    private val connections: MutableMap<String, AccountConnection> = linkedMapOf()
+    private val connections: MutableList<ForwardConnection> = mutableListOf()
 
     override fun connect(onIncomingMessage: (OneBotIncomingMessage) -> Unit) {
         if (connections.isNotEmpty()) return
 
-        config.enabledAccounts().forEach { account ->
+        config.enabledConnections().forEachIndexed { index, connection ->
+            val clientRef = arrayOfNulls<OneBotClient>(1)
             val client = OneBotClient.create(
-                BotConfig(account.url, config.accessToken).apply {
+                BotConfig(connection.url, config.accessToken).apply {
                     isReconnect = config.reconnect
                     reconnectInterval = config.reconnectIntervalSeconds
                     reconnectMaxTimes = config.reconnectMaxTimes
-                    account.accountId.toLongOrNull()?.let { botId = it }
                 },
                 OneBotIncomingListener(
                     onIncomingMessage = onIncomingMessage,
-                    botAccountIdProvider = { runtimeBotAccountId(account.accountId) },
+                    botAccountIdProvider = { clientRef[0]?.runtimeAccountId() },
                 ),
             ).open()
-            connections[account.accountId] = AccountConnection(account, client)
+            clientRef[0] = client
+            connections += ForwardConnection(
+                connectionId = "forward-$index",
+                url = connection.url,
+                client = client,
+            )
         }
     }
 
-    override fun availableAccountIds(): Set<String> = connections.keys
+    override fun availableAccounts(): List<OneBotRuntimeAccount> {
+        return connections
+            .mapNotNull { connection ->
+                connection.client.runtimeAccountId()?.let { accountId ->
+                    OneBotRuntimeAccount(accountId = accountId)
+                }
+            }
+            .distinctBy { it.accountId }
+    }
 
     override suspend fun sendPrivateMessage(accountId: String, userId: Long, message: JsonArray): String? {
         return withContext(Dispatchers.IO) {
@@ -87,7 +100,7 @@ internal class ForwardWsOneBotGateway(
     }
 
     override suspend fun close() {
-        val active = connections.values.toList()
+        val active = connections.toList()
         connections.clear()
         active.forEach { connection ->
             withContext(Dispatchers.IO) {
@@ -97,17 +110,18 @@ internal class ForwardWsOneBotGateway(
     }
 
     private fun requireBot(accountId: String): Bot {
-        return connections[accountId]?.client?.bot
-            ?: error("OneBot 正向连接尚未就绪：accountId=$accountId")
+        return connections.firstNotNullOfOrNull { connection ->
+            connection.client.takeIf { it.runtimeAccountId() == accountId }?.bot
+        } ?: error("OneBot 正向连接尚未就绪：accountId=$accountId")
     }
 
-    private fun runtimeBotAccountId(accountId: String): String {
-        return connections[accountId]?.client?.bot?.selfId?.takeIf { it > 0 }?.toString()
-            ?: accountId
+    private fun OneBotClient.runtimeAccountId(): String? {
+        return bot.selfId.takeIf { it > 0 }?.toString()
     }
 
-    private data class AccountConnection(
-        val account: OneBotAccountConfig,
+    private data class ForwardConnection(
+        val connectionId: String,
+        val url: String,
         val client: OneBotClient,
     )
 }
