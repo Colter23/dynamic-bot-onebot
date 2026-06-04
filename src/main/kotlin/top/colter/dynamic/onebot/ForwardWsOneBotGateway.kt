@@ -11,65 +11,68 @@ internal class ForwardWsOneBotGateway(
     private val config: OneBotConfig,
 ) : OneBotGateway {
 
-    private var client: OneBotClient? = null
+    private val connections: MutableMap<String, AccountConnection> = linkedMapOf()
 
     override fun connect(onIncomingMessage: (OneBotIncomingMessage) -> Unit) {
-        if (client != null) return
+        if (connections.isNotEmpty()) return
 
-        val botConfig = BotConfig(config.url, config.accessToken).apply {
-            isReconnect = config.reconnect
-            reconnectInterval = config.reconnectIntervalSeconds
-            reconnectMaxTimes = config.reconnectMaxTimes
-            if (config.botId > 0) {
-                botId = config.botId
-            }
+        config.enabledAccounts().forEach { account ->
+            val client = OneBotClient.create(
+                BotConfig(account.url, config.accessToken).apply {
+                    isReconnect = config.reconnect
+                    reconnectInterval = config.reconnectIntervalSeconds
+                    reconnectMaxTimes = config.reconnectMaxTimes
+                    account.accountId.toLongOrNull()?.let { botId = it }
+                },
+                OneBotIncomingListener(
+                    onIncomingMessage = onIncomingMessage,
+                    botAccountIdProvider = { runtimeBotAccountId(account.accountId) },
+                ),
+            ).open()
+            connections[account.accountId] = AccountConnection(account, client)
         }
-        client = OneBotClient.create(
-            botConfig,
-            OneBotIncomingListener(
-                onIncomingMessage = onIncomingMessage,
-                botAccountIdProvider = { runtimeBotAccountId() },
-            ),
-        ).open()
     }
 
-    override suspend fun sendPrivateMessage(userId: Long, message: JsonArray): String? {
+    override fun availableAccountIds(): Set<String> = connections.keys
+
+    override suspend fun sendPrivateMessage(accountId: String, userId: Long, message: JsonArray): String? {
         return withContext(Dispatchers.IO) {
-            val action = requireBot().sendPrivateMsg(userId, message, false)
+            val action = requireBot(accountId).sendPrivateMsg(userId, message, false)
             action.requireSendAccepted("send_private_msg", userId)
         }
     }
 
-    override suspend fun sendGroupMessage(groupId: Long, message: JsonArray): String? {
+    override suspend fun sendGroupMessage(accountId: String, groupId: Long, message: JsonArray): String? {
         return withContext(Dispatchers.IO) {
-            val action = requireBot().sendGroupMsg(groupId, message, false)
+            val action = requireBot(accountId).sendGroupMsg(groupId, message, false)
             action.requireSendAccepted("send_group_msg", groupId)
         }
     }
 
-    override suspend fun recallMessage(messageId: String) {
+    override suspend fun recallMessage(accountId: String, messageId: String) {
         withContext(Dispatchers.IO) {
             val id = messageId.toIntOrNull() ?: error("OneBot 消息 ID 无效：$messageId")
-            requireBot().deleteMsg(id).requireActionAccepted("delete_msg")
+            requireBot(accountId).deleteMsg(id).requireActionAccepted("delete_msg")
         }
     }
 
-    override suspend fun listGroups(): List<OneBotTargetCandidate> {
+    override suspend fun listGroups(accountId: String): List<OneBotTargetCandidate> {
         return withContext(Dispatchers.IO) {
-            val action = requireBot().getGroupList()
+            val action = requireBot(accountId).getGroupList()
             action.requireQueryOk("get_group_list").map { group ->
                 val id = group.groupId.toString()
                 OneBotTargetCandidate(
                     id = id,
                     name = group.groupName?.takeIf { it.isNotBlank() } ?: id,
+                    accountId = accountId,
                 )
             }
         }
     }
 
-    override suspend fun listFriends(): List<OneBotTargetCandidate> {
+    override suspend fun listFriends(accountId: String): List<OneBotTargetCandidate> {
         return withContext(Dispatchers.IO) {
-            val action = requireBot().getFriendList()
+            val action = requireBot(accountId).getFriendList()
             action.requireQueryOk("get_friend_list").map { friend ->
                 val id = friend.userId.toString()
                 OneBotTargetCandidate(
@@ -77,22 +80,34 @@ internal class ForwardWsOneBotGateway(
                     name = friend.remark?.takeIf { it.isNotBlank() }
                         ?: friend.nickname?.takeIf { it.isNotBlank() }
                         ?: id,
+                    accountId = accountId,
                 )
             }
         }
     }
 
     override suspend fun close() {
-        client?.close()
-        client = null
+        val active = connections.values.toList()
+        connections.clear()
+        active.forEach { connection ->
+            withContext(Dispatchers.IO) {
+                connection.client.close()
+            }
+        }
     }
 
-    private fun requireBot(): Bot {
-        return client?.bot ?: error("OneBot 正向连接尚未就绪")
+    private fun requireBot(accountId: String): Bot {
+        return connections[accountId]?.client?.bot
+            ?: error("OneBot 正向连接尚未就绪：accountId=$accountId")
     }
 
-    private fun runtimeBotAccountId(): String? {
-        return config.botId.takeIf { it > 0 }?.toString()
-            ?: client?.bot?.selfId?.takeIf { it > 0 }?.toString()
+    private fun runtimeBotAccountId(accountId: String): String {
+        return connections[accountId]?.client?.bot?.selfId?.takeIf { it > 0 }?.toString()
+            ?: accountId
     }
+
+    private data class AccountConnection(
+        val account: OneBotAccountConfig,
+        val client: OneBotClient,
+    )
 }

@@ -8,14 +8,14 @@ import cn.evole.onebot.sdk.websocket.WebSocket
 import cn.evole.onebot.sdk.websocket.handshake.ClientHandshake
 import cn.evole.onebot.sdk.websocket.server.WebSocketServer
 import com.google.gson.JsonArray
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import top.colter.dynamic.core.tools.loggerFor
 import java.net.InetSocketAddress
 import java.net.URI
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
-import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import top.colter.dynamic.core.tools.loggerFor
 
 private val logger = loggerFor<ReverseWsOneBotGateway>()
 
@@ -23,8 +23,9 @@ internal class ReverseWsOneBotGateway(
     private val config: OneBotConfig,
 ) : OneBotGateway {
 
-    private val activeBot = AtomicReference<Bot?>()
-    private val activeChannel = AtomicReference<WebSocket?>()
+    private val activeBots = ConcurrentHashMap<String, Bot>()
+    private val activeChannels = ConcurrentHashMap<String, WebSocket>()
+    private val accountBySelfId = config.enabledAccounts().associateBy { it.accountId.toLong() }
 
     @Volatile
     private var client: OneBotClient? = null
@@ -36,44 +37,34 @@ internal class ReverseWsOneBotGateway(
         if (server != null) return
 
         val runtimeClient = OneBotClient.create(
-            BotConfig("ws://${config.host}:${config.port}", config.accessToken).apply {
-                if (config.botId > 0) {
-                    botId = config.botId
-                }
-            },
-            OneBotIncomingListener(
-                onIncomingMessage = onIncomingMessage,
-                botAccountIdProvider = { runtimeBotAccountId() },
-            ),
+            BotConfig("ws://${config.host}:${config.port}", config.accessToken),
+            OneBotIncomingListener(onIncomingMessage = onIncomingMessage),
         )
         client = runtimeClient
 
         server = object : WebSocketServer(InetSocketAddress(config.host, config.port)) {
             override fun onOpen(conn: WebSocket, handshake: ClientHandshake) {
                 if (!isAuthorized(handshake)) {
-                    logger.warn {
-                        "拒绝 OneBot 反向连接：remote=${conn.remoteSocketAddress}，原因=鉴权失败"
-                    }
+                    logger.warn { "拒绝 OneBot 反向连接：remote=${conn.remoteSocketAddress}，原因=鉴权失败" }
                     conn.close(1008, "unauthorized")
                     return
                 }
 
                 val selfId = ConnectionUtils.parseSelfId(handshake)
-                if (config.botId > 0 && selfId != config.botId) {
-                    logger.warn {
-                        "拒绝 OneBot 反向连接：selfId=$selfId，期望=${config.botId}"
-                    }
+                val account = accountBySelfId[selfId]
+                if (account == null) {
+                    logger.warn { "拒绝 OneBot 反向连接：selfId=$selfId，原因=未配置该账号" }
                     conn.close(1008, "unexpected_self_id")
                     return
                 }
 
-                activeChannel.getAndSet(conn)?.takeIf { previous ->
-                    previous != conn && previous.isOpen
-                }?.close(1000, "replaced_by_new_reverse_connection")
-                activeBot.set(Bot(conn, runtimeClient.actionFactory))
+                activeChannels.put(account.accountId, conn)
+                    ?.takeIf { previous -> previous != conn && previous.isOpen }
+                    ?.close(1000, "replaced_by_new_reverse_connection")
+                activeBots[account.accountId] = Bot(conn, runtimeClient.actionFactory)
 
                 logger.info {
-                    "OneBot 反向连接已建立：selfId=$selfId，remote=${conn.remoteSocketAddress}"
+                    "OneBot 反向连接已建立：accountId=${account.accountId}，selfId=$selfId，remote=${conn.remoteSocketAddress}"
                 }
             }
 
@@ -81,72 +72,71 @@ internal class ReverseWsOneBotGateway(
                 runCatching {
                     runtimeClient.msgHandler.handle(message)
                 }.onFailure {
-                    logger.warn(it) {
-                        "OneBot 消息解析失败：remote=${conn.remoteSocketAddress}"
-                    }
+                    logger.warn(it) { "OneBot 消息解析失败：remote=${conn.remoteSocketAddress}" }
                 }
             }
 
             override fun onClose(conn: WebSocket, code: Int, reason: String, remote: Boolean) {
-                if (activeChannel.compareAndSet(conn, null)) {
-                    activeBot.set(null)
+                val accountId = activeChannels.entries.firstOrNull { it.value == conn }?.key
+                if (accountId != null) {
+                    activeChannels.remove(accountId, conn)
+                    activeBots.remove(accountId)
                 }
                 logger.debug {
-                    "OneBot 反向连接已关闭：code=$code，remote=$remote，reason=$reason"
+                    "OneBot 反向连接已关闭：accountId=${accountId ?: "-"}，code=$code，remote=$remote，reason=$reason"
                 }
             }
 
             override fun onError(conn: WebSocket?, ex: Exception) {
-                logger.warn(ex) {
-                    "OneBot 连接异常：remote=${conn?.remoteSocketAddress}"
-                }
+                logger.warn(ex) { "OneBot 连接异常：remote=${conn?.remoteSocketAddress}" }
             }
 
             override fun onStart() {
-                logger.info {
-                    "OneBot 反向网关监听中：${config.host}:${config.port}"
-                }
+                logger.info { "OneBot 反向网关监听中：${config.host}:${config.port}" }
             }
         }.also { it.start() }
     }
 
-    override suspend fun sendPrivateMessage(userId: Long, message: JsonArray): String? {
+    override fun availableAccountIds(): Set<String> = activeBots.keys.toSet()
+
+    override suspend fun sendPrivateMessage(accountId: String, userId: Long, message: JsonArray): String? {
         return withContext(Dispatchers.IO) {
-            val action = requireBot().sendPrivateMsg(userId, message, false)
+            val action = requireBot(accountId).sendPrivateMsg(userId, message, false)
             action.requireSendAccepted("send_private_msg", userId)
         }
     }
 
-    override suspend fun sendGroupMessage(groupId: Long, message: JsonArray): String? {
+    override suspend fun sendGroupMessage(accountId: String, groupId: Long, message: JsonArray): String? {
         return withContext(Dispatchers.IO) {
-            val action = requireBot().sendGroupMsg(groupId, message, false)
+            val action = requireBot(accountId).sendGroupMsg(groupId, message, false)
             action.requireSendAccepted("send_group_msg", groupId)
         }
     }
 
-    override suspend fun recallMessage(messageId: String) {
+    override suspend fun recallMessage(accountId: String, messageId: String) {
         withContext(Dispatchers.IO) {
             val id = messageId.toIntOrNull() ?: error("OneBot 消息 ID 无效：$messageId")
-            requireBot().deleteMsg(id).requireActionAccepted("delete_msg")
+            requireBot(accountId).deleteMsg(id).requireActionAccepted("delete_msg")
         }
     }
 
-    override suspend fun listGroups(): List<OneBotTargetCandidate> {
+    override suspend fun listGroups(accountId: String): List<OneBotTargetCandidate> {
         return withContext(Dispatchers.IO) {
-            val action = requireBot().getGroupList()
+            val action = requireBot(accountId).getGroupList()
             action.requireQueryOk("get_group_list").map { group ->
                 val id = group.groupId.toString()
                 OneBotTargetCandidate(
                     id = id,
                     name = group.groupName?.takeIf { it.isNotBlank() } ?: id,
+                    accountId = accountId,
                 )
             }
         }
     }
 
-    override suspend fun listFriends(): List<OneBotTargetCandidate> {
+    override suspend fun listFriends(accountId: String): List<OneBotTargetCandidate> {
         return withContext(Dispatchers.IO) {
-            val action = requireBot().getFriendList()
+            val action = requireBot(accountId).getFriendList()
             action.requireQueryOk("get_friend_list").map { friend ->
                 val id = friend.userId.toString()
                 OneBotTargetCandidate(
@@ -154,6 +144,7 @@ internal class ReverseWsOneBotGateway(
                     name = friend.remark?.takeIf { it.isNotBlank() }
                         ?: friend.nickname?.takeIf { it.isNotBlank() }
                         ?: id,
+                    accountId = accountId,
                 )
             }
         }
@@ -161,8 +152,11 @@ internal class ReverseWsOneBotGateway(
 
     override suspend fun close() {
         withContext(Dispatchers.IO) {
-            activeBot.set(null)
-            activeChannel.getAndSet(null)?.close(1000, "shutdown")
+            activeBots.clear()
+            activeChannels.values.forEach { channel ->
+                channel.close(1000, "shutdown")
+            }
+            activeChannels.clear()
             runCatching {
                 server?.stop(1000, "shutdown")
             }.onFailure {
@@ -175,8 +169,8 @@ internal class ReverseWsOneBotGateway(
         }
     }
 
-    private fun requireBot(): Bot {
-        return activeBot.get() ?: error("OneBot 反向连接尚未建立")
+    private fun requireBot(accountId: String): Bot {
+        return activeBots[accountId] ?: error("OneBot 反向连接尚未建立：accountId=$accountId")
     }
 
     private fun isAuthorized(handshake: ClientHandshake): Boolean {
@@ -221,10 +215,5 @@ internal class ReverseWsOneBotGateway(
             .firstOrNull { (key, _) -> key.equals(name, ignoreCase = true) }
             ?.second
             ?.let { URLDecoder.decode(it, StandardCharsets.UTF_8) }
-    }
-
-    private fun runtimeBotAccountId(): String? {
-        return config.botId.takeIf { it > 0 }?.toString()
-            ?: activeBot.get()?.selfId?.takeIf { it > 0 }?.toString()
     }
 }

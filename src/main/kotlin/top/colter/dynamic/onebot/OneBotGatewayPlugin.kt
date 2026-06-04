@@ -1,25 +1,29 @@
 package top.colter.dynamic.onebot
 
+import com.google.gson.JsonArray
+import top.colter.dynamic.core.command.CommandPublisher
 import top.colter.dynamic.core.config.ConfigApplyResult
 import top.colter.dynamic.core.config.ConfigurablePlugin
 import top.colter.dynamic.core.config.loadOrCreate
 import top.colter.dynamic.core.data.PlatformId
 import top.colter.dynamic.core.data.TargetAddress
 import top.colter.dynamic.core.data.TargetKind
-import top.colter.dynamic.core.command.CommandPublisher
+import top.colter.dynamic.core.plugin.AccountRoutedMessageSinkPlugin
 import top.colter.dynamic.core.plugin.CommandResultSendRequest
 import top.colter.dynamic.core.plugin.MessageDeliveryRequest
 import top.colter.dynamic.core.plugin.MessageRecallRequest
 import top.colter.dynamic.core.plugin.MessageRecallResult
-import top.colter.dynamic.core.plugin.MessageSinkPlugin
 import top.colter.dynamic.core.plugin.MessageSendResult
+import top.colter.dynamic.core.plugin.MessageSinkAccount
+import top.colter.dynamic.core.plugin.MessageSinkAccountState
+import top.colter.dynamic.core.plugin.MessageSinkRoutingPolicy
 import top.colter.dynamic.core.plugin.MessageTargetCandidate
 import top.colter.dynamic.core.plugin.PluginContext
 import top.colter.dynamic.core.tools.loggerFor
 
 private val logger = loggerFor<OneBotGatewayPlugin>()
 
-public class OneBotGatewayPlugin : MessageSinkPlugin, ConfigurablePlugin<OneBotConfig> {
+public class OneBotGatewayPlugin : AccountRoutedMessageSinkPlugin, ConfigurablePlugin<OneBotConfig> {
 
     private var pluginId: String = ONEBOT_PLUGIN_ID
     private var config: OneBotConfig = OneBotConfig()
@@ -30,7 +34,7 @@ public class OneBotGatewayPlugin : MessageSinkPlugin, ConfigurablePlugin<OneBotC
     override val configId: String
         get() = pluginId
     override val configName: String = "OneBot 网关"
-    override val configDescription: String = "OneBot 连接与消息投递配置。"
+    override val configDescription: String = "OneBot 连接、账号路由与消息投递配置。"
     override val configClass = OneBotConfig::class
     override val configFormSpec = OneBotConfigForm.spec
     override val platformId: PlatformId = PlatformId.of("onebot")
@@ -39,27 +43,29 @@ public class OneBotGatewayPlugin : MessageSinkPlugin, ConfigurablePlugin<OneBotC
     override suspend fun onLoad(context: PluginContext) {
         pluginId = context.pluginId
         commandPublisher = context.commandPublisher
-        config = context.configService.loadOrCreate(pluginId) { OneBotConfig() }
-        logger.info { "OneBot 配置已加载：pluginId=$pluginId" }
+        config = context.configService.loadOrCreate(pluginId, OneBotConfigForm.migrations) { OneBotConfig() }
+        OneBotConfigForm.validate(config)
+        logger.info { "OneBot 配置已加载：pluginId=$pluginId，accounts=${config.enabledAccounts().size}" }
     }
 
     override suspend fun onStart() {
         if (running) return
 
+        OneBotConfigForm.validate(config)
         gateway = OneBotGatewayFactory.create(config)
         runCatching {
             gateway.connect(::onIncomingMessage)
         }.onFailure {
             gateway.close()
             gateway = NoopOneBotGateway()
-            logger.error(it) {
-                "OneBot 启动失败：mode=${config.mode} endpoint=${config.endpointLabel()}"
-            }
+            logger.error(it) { "OneBot 启动失败：mode=${config.mode} endpoint=${config.endpointLabel()}" }
             throw it
         }
         running = true
 
-        logger.info { "OneBot 已启动：mode=${config.mode} endpoint=${config.endpointLabel()}" }
+        logger.info {
+            "OneBot 已启动：mode=${config.mode} endpoint=${config.endpointLabel()} accounts=${config.enabledAccounts().joinToString { it.accountId }}"
+        }
     }
 
     override suspend fun onStop() {
@@ -88,26 +94,54 @@ public class OneBotGatewayPlugin : MessageSinkPlugin, ConfigurablePlugin<OneBotC
         )
     }
 
+    override fun routingPolicy(): MessageSinkRoutingPolicy = config.routingPolicy
+
+    override suspend fun listMessageSinkAccounts(target: TargetAddress?): List<MessageSinkAccount> {
+        if (target != null) {
+            if (target.platformId != platformId) return emptyList()
+            if (target.kind !in supportedTargetKinds) return emptyList()
+        }
+        val readyAccountIds = if (running) gateway.availableAccountIds() else emptySet()
+        return config.normalizedAccounts().map { account ->
+            MessageSinkAccount(
+                accountId = account.accountId,
+                name = account.displayName,
+                enabled = account.enabled,
+                state = if (account.enabled && account.accountId in readyAccountIds) {
+                    MessageSinkAccountState.READY
+                } else {
+                    MessageSinkAccountState.UNAVAILABLE
+                },
+                role = account.role,
+            )
+        }
+    }
+
     override suspend fun sendMessage(request: MessageDeliveryRequest): MessageSendResult {
+        val accountId = request.target.accountId?.trim()?.takeIf { it.isNotBlank() }
+            ?: firstReadyAccountId()
+            ?: return MessageSendResult.failed("OneBot 无可用账号")
+        return sendMessage(request, accountId)
+    }
+
+    override suspend fun sendMessage(
+        request: MessageDeliveryRequest,
+        accountId: String,
+    ): MessageSendResult {
         if (!running) return MessageSendResult.failed("OneBot 未运行")
+        if (accountId !in config.enabledAccounts().map { it.accountId }) {
+            return MessageSendResult.failed("OneBot 账号未配置：$accountId", retryable = false)
+        }
 
         val message = request.message
         val payloads = OneBotMessageMapper.toJsonArrayMessages(message)
 
         return when (val target = OneBotTarget.fromAddress(request.target)) {
-            is OneBotTarget.Group -> sendMessage {
-                var sinkMessageId: String? = null
-                for (payload in payloads) {
-                    gateway.sendGroupMessage(target.groupId, payload)?.let { sinkMessageId = it }
-                }
-                sinkMessageId
+            is OneBotTarget.Group -> sendPayloads(accountId, payloads, "OneBot 消息发送失败") { payload ->
+                gateway.sendGroupMessage(accountId, target.groupId, payload)
             }
-            is OneBotTarget.User -> sendMessage {
-                var sinkMessageId: String? = null
-                for (payload in payloads) {
-                    gateway.sendPrivateMessage(target.userId, payload)?.let { sinkMessageId = it }
-                }
-                sinkMessageId
+            is OneBotTarget.User -> sendPayloads(accountId, payloads, "OneBot 消息发送失败") { payload ->
+                gateway.sendPrivateMessage(accountId, target.userId, payload)
             }
             is OneBotTarget.Unsupported -> {
                 logger.warn {
@@ -119,6 +153,16 @@ public class OneBotGatewayPlugin : MessageSinkPlugin, ConfigurablePlugin<OneBotC
     }
 
     override suspend fun sendCommandResult(request: CommandResultSendRequest): MessageSendResult {
+        val accountId = request.target.address.accountId?.trim()?.takeIf { it.isNotBlank() }
+            ?: firstReadyAccountId()
+            ?: return MessageSendResult.failed("OneBot 无可用账号")
+        return sendCommandResult(request, accountId)
+    }
+
+    override suspend fun sendCommandResult(
+        request: CommandResultSendRequest,
+        accountId: String,
+    ): MessageSendResult {
         if (!running) return MessageSendResult.failed("OneBot 未运行")
         if (request.target.address.platformId != platformId) {
             return MessageSendResult.failed("目标平台不是 OneBot", retryable = false)
@@ -127,35 +171,43 @@ public class OneBotGatewayPlugin : MessageSinkPlugin, ConfigurablePlugin<OneBotC
         val payload = OneBotMessageMapper.toJsonArrayMessage(request.chain)
         return runCatching {
             val sinkMessageId = when (request.target.chatType) {
-                TargetKind.GROUP -> gateway.sendGroupMessage(request.target.chatId.toLong(), payload)
-                TargetKind.USER -> gateway.sendPrivateMessage(request.target.chatId.toLong(), payload)
+                TargetKind.GROUP -> gateway.sendGroupMessage(accountId, request.target.chatId.toLong(), payload)
+                TargetKind.USER -> gateway.sendPrivateMessage(accountId, request.target.chatId.toLong(), payload)
                 else -> {
                     logger.warn {
-                    "跳过 OneBot 命令结果：traceId=${request.inReplyTo}，不支持的目标=${request.target.chatType}:${request.target.chatId}"
+                        "跳过 OneBot 命令结果：traceId=${request.inReplyTo}，不支持目标=${request.target.chatType}:${request.target.chatId}"
                     }
-                    null
+                    return MessageSendResult.failed("OneBot 不支持目标类型：${request.target.chatType}", retryable = false)
                 }
             }
-            MessageSendResult.sent(sinkMessageId)
+            MessageSendResult.sent(sinkMessageId, sinkAccountId = accountId)
         }.getOrElse {
             logger.warn(it) {
-                "OneBot 命令结果发送失败：traceId=${request.inReplyTo} target=${request.target.chatType}:${request.target.chatId}"
+                "OneBot 命令结果发送失败：traceId=${request.inReplyTo} target=${request.target.chatType}:${request.target.chatId} accountId=$accountId"
             }
             MessageSendResult.failed(it.message ?: "OneBot 命令结果发送失败")
         }
     }
 
     override suspend fun recallMessage(request: MessageRecallRequest): MessageRecallResult {
+        val accountId = request.sinkAccountId?.trim()?.takeIf { it.isNotBlank() }
+            ?: request.target.accountId?.trim()?.takeIf { it.isNotBlank() }
+            ?: firstReadyAccountId()
+            ?: return MessageRecallResult.failed("OneBot 无可用账号")
+        return recallMessage(request, accountId)
+    }
+
+    override suspend fun recallMessage(request: MessageRecallRequest, accountId: String): MessageRecallResult {
         if (!running) return MessageRecallResult.failed("OneBot 未运行")
         if (request.target.platformId != platformId) {
             return MessageRecallResult.failed("目标平台不是 OneBot")
         }
         return runCatching {
-            gateway.recallMessage(request.sinkMessageId)
+            gateway.recallMessage(accountId, request.sinkMessageId)
             MessageRecallResult.recalled()
         }.getOrElse {
             logger.debug(it) {
-                "OneBot 消息撤回失败：target=${request.target.externalId} sinkMessageId=${request.sinkMessageId}"
+                "OneBot 消息撤回失败：target=${request.target.externalId} sinkMessageId=${request.sinkMessageId} accountId=$accountId"
             }
             MessageRecallResult.failed(it.message ?: "OneBot 消息撤回失败")
         }
@@ -164,14 +216,21 @@ public class OneBotGatewayPlugin : MessageSinkPlugin, ConfigurablePlugin<OneBotC
     override suspend fun listMessageTargets(kind: TargetKind?): List<MessageTargetCandidate> {
         if (!running) return emptyList()
         val kinds = kind?.let { setOf(it) } ?: supportedTargetKinds
-        return buildList {
-            if (TargetKind.GROUP in kinds) {
-                addAll(gateway.listGroups().map { it.toCandidate(TargetKind.GROUP) })
-            }
-            if (TargetKind.USER in kinds) {
-                addAll(gateway.listFriends().map { it.toCandidate(TargetKind.USER) })
+        val accounts = config.enabledAccounts().associateBy { it.accountId }
+        val accountIds = gateway.availableAccountIds().filter { it in accounts.keys }
+        val targets = mutableListOf<MessageTargetCandidate>()
+
+        if (TargetKind.GROUP in kinds) {
+            targets += listTargetsForAccounts(accountIds, accounts, TargetKind.GROUP) { accountId ->
+                gateway.listGroups(accountId)
             }
         }
+        if (TargetKind.USER in kinds) {
+            targets += listTargetsForAccounts(accountIds, accounts, TargetKind.USER) { accountId ->
+                gateway.listFriends(accountId)
+            }
+        }
+        return targets.distinctBy { it.address.stableValue() }
     }
 
     override suspend fun resolveMessageTarget(address: TargetAddress): MessageTargetCandidate? {
@@ -185,12 +244,75 @@ public class OneBotGatewayPlugin : MessageSinkPlugin, ConfigurablePlugin<OneBotC
             )
     }
 
-    private suspend fun sendMessage(action: suspend () -> String?): MessageSendResult {
+    private suspend fun sendPayloads(
+        accountId: String,
+        payloads: List<JsonArray>,
+        failureLabel: String,
+        send: suspend (JsonArray) -> String?,
+    ): MessageSendResult {
+        var sentCount = 0
+        var sinkMessageId: String? = null
         return runCatching {
-            MessageSendResult.sent(action())
+            payloads.forEach { payload ->
+                send(payload)?.let { sinkMessageId = it }
+                sentCount += 1
+            }
+            MessageSendResult.sent(sinkMessageId, sinkAccountId = accountId)
         }.getOrElse {
-            MessageSendResult.failed(it.message ?: "OneBot 消息发送失败")
+            MessageSendResult.failed(
+                reason = it.message ?: failureLabel,
+                retryable = sentCount == 0,
+                partialSent = sentCount > 0,
+            )
         }
+    }
+
+    private suspend fun listTargetsForAccounts(
+        accountIds: List<String>,
+        accounts: Map<String, OneBotAccountConfig>,
+        kind: TargetKind,
+        list: suspend (String) -> List<OneBotTargetCandidate>,
+    ): List<MessageTargetCandidate> {
+        val perAccount = buildList {
+            accountIds.forEach { accountId ->
+                addAll(
+                    runCatching { list(accountId) }
+                        .getOrElse {
+                            logger.warn(it) { "OneBot 目标列表读取失败：accountId=$accountId kind=$kind" }
+                            emptyList()
+                        },
+                )
+            }
+        }
+        val autoTargets = perAccount
+            .groupBy { it.id }
+            .values
+            .map { candidates ->
+                val first = candidates.first()
+                first.toMessageTarget(kind, accountId = null, suffix = "自动选择")
+            }
+        val accountTargets = perAccount.map { candidate ->
+            val accountName = accounts[candidate.accountId]?.displayName ?: candidate.accountId
+            candidate.toMessageTarget(kind, accountId = candidate.accountId, suffix = accountName)
+        }
+        return autoTargets + accountTargets
+    }
+
+    private fun OneBotTargetCandidate.toMessageTarget(
+        kind: TargetKind,
+        accountId: String?,
+        suffix: String,
+    ): MessageTargetCandidate {
+        return MessageTargetCandidate(
+            address = TargetAddress.of(
+                platformId = platformId.value,
+                kind = kind,
+                externalId = id,
+                accountId = accountId,
+            ),
+            name = "$name · $suffix",
+            avatar = oneBotTargetAvatar(kind, id),
+        )
     }
 
     private fun onIncomingMessage(incoming: OneBotIncomingMessage) {
@@ -210,22 +332,15 @@ public class OneBotGatewayPlugin : MessageSinkPlugin, ConfigurablePlugin<OneBotC
         }
     }
 
-    private fun OneBotConfig.endpointLabel(): String {
-        return when (mode) {
-            OneBotConnectionMode.FORWARD_WS -> url
-            OneBotConnectionMode.REVERSE_WS -> "$host:$port"
-        }
+    private fun firstReadyAccountId(): String? {
+        val available = gateway.availableAccountIds()
+        return config.enabledAccounts().firstOrNull { it.accountId in available }?.accountId
     }
 
-    private fun OneBotTargetCandidate.toCandidate(kind: TargetKind): MessageTargetCandidate {
-        return MessageTargetCandidate(
-            address = TargetAddress.of(
-                platformId = platformId.value,
-                kind = kind,
-                externalId = id,
-            ),
-            name = name,
-            avatar = oneBotTargetAvatar(kind, id),
-        )
+    private fun OneBotConfig.endpointLabel(): String {
+        return when (mode) {
+            OneBotConnectionMode.FORWARD_WS -> enabledAccounts().joinToString { "${it.accountId}@${it.url}" }
+            OneBotConnectionMode.REVERSE_WS -> "$host:$port"
+        }
     }
 }

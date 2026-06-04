@@ -25,15 +25,17 @@ public enum class OneBotChatType {
 public data class OneBotTargetCandidate(
     val id: String,
     val name: String,
+    val accountId: String,
 )
 
 public interface OneBotGateway {
     public fun connect(onIncomingMessage: (OneBotIncomingMessage) -> Unit)
-    public suspend fun sendPrivateMessage(userId: Long, message: JsonArray): String?
-    public suspend fun sendGroupMessage(groupId: Long, message: JsonArray): String?
-    public suspend fun recallMessage(messageId: String)
-    public suspend fun listGroups(): List<OneBotTargetCandidate>
-    public suspend fun listFriends(): List<OneBotTargetCandidate>
+    public fun availableAccountIds(): Set<String>
+    public suspend fun sendPrivateMessage(accountId: String, userId: Long, message: JsonArray): String?
+    public suspend fun sendGroupMessage(accountId: String, groupId: Long, message: JsonArray): String?
+    public suspend fun recallMessage(accountId: String, messageId: String)
+    public suspend fun listGroups(accountId: String): List<OneBotTargetCandidate>
+    public suspend fun listFriends(accountId: String): List<OneBotTargetCandidate>
     public suspend fun close()
 }
 
@@ -41,16 +43,18 @@ public class NoopOneBotGateway : OneBotGateway {
     override fun connect(onIncomingMessage: (OneBotIncomingMessage) -> Unit) {
     }
 
-    override suspend fun sendPrivateMessage(userId: Long, message: JsonArray): String? = null
+    override fun availableAccountIds(): Set<String> = emptySet()
 
-    override suspend fun sendGroupMessage(groupId: Long, message: JsonArray): String? = null
+    override suspend fun sendPrivateMessage(accountId: String, userId: Long, message: JsonArray): String? = null
 
-    override suspend fun recallMessage(messageId: String) {
+    override suspend fun sendGroupMessage(accountId: String, groupId: Long, message: JsonArray): String? = null
+
+    override suspend fun recallMessage(accountId: String, messageId: String) {
     }
 
-    override suspend fun listGroups(): List<OneBotTargetCandidate> = emptyList()
+    override suspend fun listGroups(accountId: String): List<OneBotTargetCandidate> = emptyList()
 
-    override suspend fun listFriends(): List<OneBotTargetCandidate> = emptyList()
+    override suspend fun listFriends(accountId: String): List<OneBotTargetCandidate> = emptyList()
 
     override suspend fun close() {
     }
