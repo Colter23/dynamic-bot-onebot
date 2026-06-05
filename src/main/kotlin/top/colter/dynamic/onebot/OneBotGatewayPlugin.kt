@@ -283,6 +283,7 @@ public class OneBotGatewayPlugin : AccountRoutedMessageSinkPlugin, ConfigurableP
         targetPlatformId = QQ_PLATFORM_ID,
         accountId = accountId,
         accountName = name,
+        accountAvatar = oneBotTargetAvatar(TargetKind.USER, accountId),
         enabled = true,
         state = state,
     )
