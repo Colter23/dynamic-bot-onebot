@@ -6,6 +6,7 @@ import cn.evole.onebot.client.core.BotConfig
 import com.google.gson.JsonArray
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import top.colter.dynamic.core.plugin.MessageSinkRouteState
 import top.colter.dynamic.core.tools.loggerFor
 
 private val logger = loggerFor<ForwardWsOneBotGateway>()
@@ -130,13 +131,6 @@ internal class ForwardWsOneBotGateway(
     }
 
     private fun ForwardConnection.refreshRuntimeAccount(): OneBotRuntimeAccount? {
-        client.runtimeAccountId()?.let { accountId ->
-            account?.takeIf { it.accountId == accountId }?.let { return it }
-            return OneBotRuntimeAccount(accountId = accountId).also { account = it }
-        }
-
-        account?.let { return it }
-
         return runCatching {
             val bot = client.bot ?: error("OneBot Bot 尚未初始化")
             val info = bot.getLoginInfo().requireDataOk("get_login_info")
@@ -145,13 +139,41 @@ internal class ForwardWsOneBotGateway(
             OneBotRuntimeAccount(
                 accountId = accountId,
                 name = info.nickname?.takeIf { it.isNotBlank() } ?: "QQ机器人 $accountId",
+                state = MessageSinkRouteState.READY,
             )
         }.onSuccess {
+            val previous = account
             account = it
-            logger.info { "OneBot 正向连接账号已识别：connectionId=$connectionId，name=${name.ifBlank { "-" }}，accountId=${it.accountId}，accountName=${it.name}" }
+            if (previous?.accountId != it.accountId) {
+                logger.info { "OneBot 正向连接账号已识别：connectionId=$connectionId，name=${name.ifBlank { "-" }}，accountId=${it.accountId}，accountName=${it.name}" }
+            } else if (previous.state != MessageSinkRouteState.READY) {
+                logger.info { "OneBot 正向连接账号已恢复：connectionId=$connectionId，accountId=${it.accountId}，accountName=${it.name}" }
+            }
         }.onFailure {
-            logger.warn(it) { "OneBot 正向连接账号识别失败：connectionId=$connectionId，name=${name.ifBlank { "-" }}，url=$url" }
-        }.getOrNull()
+            markUnavailable(it)
+        }.getOrNull() ?: account
+    }
+
+    private fun ForwardConnection.markUnavailable(error: Throwable) {
+        val accountId = account?.accountId ?: client.runtimeAccountId()
+        if (accountId == null) {
+            logger.warn(error) { "OneBot 正向连接账号识别失败：connectionId=$connectionId，name=${name.ifBlank { "-" }}，url=$url" }
+            return
+        }
+
+        val previous = account
+        account = (previous ?: OneBotRuntimeAccount(accountId = accountId)).copy(
+            state = MessageSinkRouteState.UNAVAILABLE,
+        )
+        if (previous?.state != MessageSinkRouteState.UNAVAILABLE) {
+            logger.warn(error) {
+                "OneBot 正向连接账号不可用：connectionId=$connectionId，name=${name.ifBlank { "-" }}，accountId=$accountId，url=$url"
+            }
+        } else {
+            logger.debug(error) {
+                "OneBot 正向连接账号仍不可用：connectionId=$connectionId，accountId=$accountId"
+            }
+        }
     }
 
     private fun OneBotClient.runtimeAccountId(): String? {

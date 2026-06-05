@@ -5,6 +5,7 @@ import cn.evole.onebot.sdk.action.misc.ActionList
 import cn.evole.onebot.sdk.action.misc.ActionRaw
 import cn.evole.onebot.sdk.entity.MsgId
 import com.google.gson.JsonArray
+import top.colter.dynamic.core.plugin.MessageSinkRouteState
 
 internal const val ONEBOT_PLUGIN_ID: String = "onebot-gateway"
 
@@ -31,6 +32,7 @@ public data class OneBotTargetCandidate(
 public data class OneBotRuntimeAccount(
     val accountId: String,
     val name: String = "QQ机器人 $accountId",
+    val state: MessageSinkRouteState = MessageSinkRouteState.READY,
 )
 
 public interface OneBotGateway {

@@ -97,9 +97,8 @@ public class OneBotGatewayPlugin : AccountRoutedMessageSinkPlugin, ConfigurableP
 
     override suspend fun listMessageSinkRoutes(target: TargetAddress?): List<MessageSinkRoute> {
         if (target != null && !supportsTarget(target)) return emptyList()
-        val state = if (running) MessageSinkRouteState.READY else MessageSinkRouteState.UNAVAILABLE
         return gateway.availableAccounts().map { account ->
-            account.toRoute(state)
+            account.toRoute(if (running) account.state else MessageSinkRouteState.UNAVAILABLE)
         }
     }
 
@@ -113,6 +112,9 @@ public class OneBotGatewayPlugin : AccountRoutedMessageSinkPlugin, ConfigurableP
         }
         val accountId = accountIdFromRoute(routeId)
             ?: return MessageSendResult.failed("OneBot 路线 ID 无效：$routeId", retryable = false)
+        if (!isAccountReady(accountId)) {
+            return MessageSendResult.failed("OneBot 账号不可用：$accountId")
+        }
 
         val message = request.message
         val payloads = OneBotMessageMapper.toJsonArrayMessages(message)
@@ -143,6 +145,9 @@ public class OneBotGatewayPlugin : AccountRoutedMessageSinkPlugin, ConfigurableP
         }
         val accountId = accountIdFromRoute(routeId)
             ?: return MessageSendResult.failed("OneBot 路线 ID 无效：$routeId", retryable = false)
+        if (!isAccountReady(accountId)) {
+            return MessageSendResult.failed("OneBot 账号不可用：$accountId")
+        }
 
         val payload = OneBotMessageMapper.toJsonArrayMessage(request.chain)
         return runCatching {
@@ -172,6 +177,9 @@ public class OneBotGatewayPlugin : AccountRoutedMessageSinkPlugin, ConfigurableP
         }
         val accountId = accountIdFromRoute(routeId)
             ?: return MessageRecallResult.failed("OneBot 路线 ID 无效：$routeId")
+        if (!isAccountReady(accountId)) {
+            return MessageRecallResult.failed("OneBot 账号不可用：$accountId")
+        }
         return runCatching {
             gateway.recallMessage(accountId, request.sinkMessageId)
             MessageRecallResult.recalled()
@@ -186,7 +194,9 @@ public class OneBotGatewayPlugin : AccountRoutedMessageSinkPlugin, ConfigurableP
     override suspend fun listMessageTargets(kind: TargetKind?): List<MessageTargetCandidate> {
         if (!running) return emptyList()
         val kinds = kind?.let { setOf(it) } ?: supportedTargetKinds
-        val accounts = gateway.availableAccounts().associateBy { it.accountId }
+        val accounts = gateway.availableAccounts()
+            .filter { it.state == MessageSinkRouteState.READY }
+            .associateBy { it.accountId }
         val accountIds = accounts.keys.sorted()
         val targets = mutableListOf<MessageTargetCandidate>()
 
@@ -295,6 +305,12 @@ public class OneBotGatewayPlugin : AccountRoutedMessageSinkPlugin, ConfigurableP
         return routeId.removePrefix(prefix)
             .takeIf { it != routeId }
             ?.takeIf { it.isNotBlank() }
+    }
+
+    private suspend fun isAccountReady(accountId: String): Boolean {
+        return gateway.availableAccounts().any {
+            it.accountId == accountId && it.state == MessageSinkRouteState.READY
+        }
     }
 
     private fun onIncomingMessage(incoming: OneBotIncomingMessage) {

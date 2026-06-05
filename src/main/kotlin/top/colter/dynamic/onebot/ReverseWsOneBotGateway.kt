@@ -15,6 +15,7 @@ import java.nio.charset.StandardCharsets
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import top.colter.dynamic.core.plugin.MessageSinkRouteState
 import top.colter.dynamic.core.tools.loggerFor
 
 private val logger = loggerFor<ReverseWsOneBotGateway>()
@@ -25,6 +26,7 @@ internal class ReverseWsOneBotGateway(
 
     private val activeBots = ConcurrentHashMap<String, Bot>()
     private val activeChannels = ConcurrentHashMap<String, WebSocket>()
+    private val knownAccounts = ConcurrentHashMap<String, OneBotRuntimeAccount>()
 
     @Volatile
     private var client: OneBotClient? = null
@@ -62,6 +64,10 @@ internal class ReverseWsOneBotGateway(
                     ?.takeIf { previous -> previous != conn && previous.isOpen }
                     ?.close(1000, "replaced_by_new_reverse_connection")
                 activeBots[accountId] = Bot(conn, runtimeClient.actionFactory)
+                knownAccounts[accountId] = OneBotRuntimeAccount(
+                    accountId = accountId,
+                    state = MessageSinkRouteState.READY,
+                )
 
                 logger.info { "OneBot 反向连接已建立：accountId=$accountId，remote=${conn.remoteSocketAddress}" }
             }
@@ -79,6 +85,11 @@ internal class ReverseWsOneBotGateway(
                 if (accountId != null) {
                     activeChannels.remove(accountId, conn)
                     activeBots.remove(accountId)
+                    knownAccounts.compute(accountId) { _, previous ->
+                        (previous ?: OneBotRuntimeAccount(accountId = accountId)).copy(
+                            state = MessageSinkRouteState.UNAVAILABLE,
+                        )
+                    }
                 }
                 logger.debug {
                     "OneBot 反向连接已关闭：accountId=${accountId ?: "-"}，code=$code，remote=$remote，reason=$reason"
@@ -96,8 +107,7 @@ internal class ReverseWsOneBotGateway(
     }
 
     override suspend fun availableAccounts(): List<OneBotRuntimeAccount> {
-        return activeBots.keys
-            .map { accountId -> OneBotRuntimeAccount(accountId = accountId) }
+        return knownAccounts.values
             .sortedBy { it.accountId }
     }
 
@@ -159,6 +169,7 @@ internal class ReverseWsOneBotGateway(
                 channel.close(1000, "shutdown")
             }
             activeChannels.clear()
+            knownAccounts.replaceAll { _, account -> account.copy(state = MessageSinkRouteState.UNAVAILABLE) }
             runCatching {
                 server?.stop(1000, "shutdown")
             }.onFailure {
