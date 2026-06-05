@@ -23,7 +23,7 @@ internal class ForwardWsOneBotGateway(
             val clientRef = arrayOfNulls<OneBotClient>(1)
             val connectionRef = arrayOfNulls<ForwardConnection>(1)
             val client = OneBotClient.create(
-                BotConfig(connection.url, config.accessToken).apply {
+                BotConfig(connection.url, connection.accessToken).apply {
                     isReconnect = config.reconnect
                     reconnectInterval = config.reconnectIntervalSeconds
                     reconnectMaxTimes = config.reconnectMaxTimes
@@ -39,6 +39,7 @@ internal class ForwardWsOneBotGateway(
             val runtimeConnection = ForwardConnection(
                 connectionId = "forward-$index",
                 url = connection.url,
+                name = connection.name,
                 client = client,
             )
             connectionRef[0] = runtimeConnection
@@ -112,7 +113,7 @@ internal class ForwardWsOneBotGateway(
                 runCatching {
                     connection.client.close()
                 }.onFailure {
-                    logger.warn(it) { "OneBot 正向连接关闭失败：connectionId=${connection.connectionId}，url=${connection.url}" }
+                    logger.warn(it) { "OneBot 正向连接关闭失败：connectionId=${connection.connectionId}，name=${connection.name.ifBlank { "-" }}，url=${connection.url}" }
                 }
             }
         }
@@ -147,9 +148,9 @@ internal class ForwardWsOneBotGateway(
             )
         }.onSuccess {
             account = it
-            logger.info { "OneBot 正向连接账号已识别：connectionId=$connectionId，accountId=${it.accountId}，name=${it.name}" }
+            logger.info { "OneBot 正向连接账号已识别：connectionId=$connectionId，name=${name.ifBlank { "-" }}，accountId=${it.accountId}，accountName=${it.name}" }
         }.onFailure {
-            logger.warn(it) { "OneBot 正向连接账号识别失败：connectionId=$connectionId，url=$url" }
+            logger.warn(it) { "OneBot 正向连接账号识别失败：connectionId=$connectionId，name=${name.ifBlank { "-" }}，url=$url" }
         }.getOrNull()
     }
 
@@ -160,6 +161,7 @@ internal class ForwardWsOneBotGateway(
     private data class ForwardConnection(
         val connectionId: String,
         val url: String,
+        val name: String,
         val client: OneBotClient,
         @Volatile
         var account: OneBotRuntimeAccount? = null,

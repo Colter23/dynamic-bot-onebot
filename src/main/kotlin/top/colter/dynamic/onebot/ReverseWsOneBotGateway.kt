@@ -36,7 +36,7 @@ internal class ReverseWsOneBotGateway(
         if (server != null) return
 
         val runtimeClient = OneBotClient.create(
-            BotConfig("ws://${config.host}:${config.port}", config.accessToken),
+            BotConfig("ws://${config.host}:${config.port}", config.reverseAccessToken),
             OneBotIncomingListener(onIncomingMessage = onIncomingMessage),
         )
         client = runtimeClient
@@ -176,8 +176,8 @@ internal class ReverseWsOneBotGateway(
     }
 
     private fun isAuthorized(handshake: ClientHandshake): Boolean {
-        if (config.accessToken.isBlank()) return true
-        return tokenCandidates(handshake).any { it == config.accessToken }
+        if (config.reverseAccessToken.isBlank()) return true
+        return tokenCandidates(handshake).any { it == config.reverseAccessToken }
     }
 
     private fun tokenCandidates(handshake: ClientHandshake): Sequence<String> = sequence {

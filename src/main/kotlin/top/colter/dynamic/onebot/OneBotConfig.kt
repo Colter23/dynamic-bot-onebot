@@ -11,7 +11,7 @@ public data class OneBotConfig(
     val connections: List<OneBotForwardConnectionConfig> = listOf(OneBotForwardConnectionConfig()),
     val host: String = "0.0.0.0",
     val port: Int = 6701,
-    val accessToken: String = "",
+    val reverseAccessToken: String = "",
     val reconnect: Boolean = true,
     val reconnectIntervalSeconds: Int = 5,
     val reconnectMaxTimes: Int = 3,
@@ -19,6 +19,8 @@ public data class OneBotConfig(
 
 public data class OneBotForwardConnectionConfig(
     val url: String = "ws://127.0.0.1:6700",
+    val accessToken: String = "",
+    val name: String = "",
     val enabled: Boolean = true,
 )
 
@@ -50,7 +52,8 @@ public object OneBotConfigForm {
                 label = "正向连接",
                 type = ConfigFieldType.JSON,
                 section = "连接",
-                description = "正向 WebSocket 连接列表；账号 ID 和名称会在连接后由协议自动识别。",
+                description = "正向 WebSocket 连接列表；Token 按连接独立配置，账号 ID 和名称会在连接后由协议自动识别。",
+                component = "ONEBOT_CONNECTION_TABLE",
                 required = true,
                 restartRequired = true,
                 restartTarget = "OneBot 插件",
@@ -58,8 +61,8 @@ public object OneBotConfigForm {
                 metadata = mapOf(
                     "example" to """
                         [
-                          {"url":"ws://127.0.0.1:6700","enabled":true},
-                          {"url":"ws://127.0.0.1:6702","enabled":true}
+                          {"name":"本机 NapCat","url":"ws://127.0.0.1:6700","accessToken":"","enabled":true},
+                          {"name":"备用连接","url":"ws://127.0.0.1:6702","accessToken":"token","enabled":true}
                         ]
                     """.trimIndent(),
                 ),
@@ -86,13 +89,15 @@ public object OneBotConfigForm {
                 visibleWhen = reverseWsOnly(),
             ),
             ConfigFieldSpec(
-                path = "accessToken",
-                label = "访问 Token",
+                path = "reverseAccessToken",
+                label = "反向连接 Token",
                 type = ConfigFieldType.SECRET,
                 section = "连接",
+                description = "反向 WebSocket 鉴权 Token；留空则不校验。",
                 secret = true,
                 restartRequired = true,
                 restartTarget = "OneBot 插件",
+                visibleWhen = reverseWsOnly(),
             ),
             ConfigFieldSpec(
                 path = "reconnect",
@@ -162,6 +167,6 @@ public object OneBotConfigForm {
 
 internal fun OneBotConfig.enabledConnections(): List<OneBotForwardConnectionConfig> {
     return connections
-        .map { it.copy(url = it.url.trim()) }
+        .map { it.copy(url = it.url.trim(), accessToken = it.accessToken.trim(), name = it.name.trim()) }
         .filter { it.enabled }
 }
