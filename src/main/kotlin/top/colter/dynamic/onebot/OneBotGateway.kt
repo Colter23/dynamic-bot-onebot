@@ -35,7 +35,7 @@ public data class OneBotRuntimeAccount(
 
 public interface OneBotGateway {
     public fun connect(onIncomingMessage: (OneBotIncomingMessage) -> Unit)
-    public fun availableAccounts(): List<OneBotRuntimeAccount>
+    public suspend fun availableAccounts(): List<OneBotRuntimeAccount>
     public suspend fun sendPrivateMessage(accountId: String, userId: Long, message: JsonArray): String?
     public suspend fun sendGroupMessage(accountId: String, groupId: Long, message: JsonArray): String?
     public suspend fun recallMessage(accountId: String, messageId: String)
@@ -48,7 +48,7 @@ public class NoopOneBotGateway : OneBotGateway {
     override fun connect(onIncomingMessage: (OneBotIncomingMessage) -> Unit) {
     }
 
-    override fun availableAccounts(): List<OneBotRuntimeAccount> = emptyList()
+    override suspend fun availableAccounts(): List<OneBotRuntimeAccount> = emptyList()
 
     override suspend fun sendPrivateMessage(accountId: String, userId: Long, message: JsonArray): String? = null
 
@@ -96,6 +96,19 @@ internal fun ActionRaw?.requireActionAccepted(action: String) {
 }
 
 internal fun <T> ActionList<T>?.requireQueryOk(action: String): List<T> {
+    if (this == null) {
+        error("OneBot 查询失败：action=$action，原因=未收到响应")
+    }
+    if (status.equals("no_response", ignoreCase = true)) {
+        error("OneBot 查询失败：action=$action，原因=未收到响应")
+    }
+    if (!status.equals("ok", ignoreCase = true)) {
+        error("OneBot 查询失败：action=$action，status=$status，retCode=$retCode")
+    }
+    return data ?: error("OneBot 查询失败：action=$action，原因=响应数据为空")
+}
+
+internal fun <T> ActionData<T>?.requireDataOk(action: String): T {
     if (this == null) {
         error("OneBot 查询失败：action=$action，原因=未收到响应")
     }

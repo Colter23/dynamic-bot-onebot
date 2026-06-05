@@ -95,7 +95,7 @@ internal class ReverseWsOneBotGateway(
         }.also { it.start() }
     }
 
-    override fun availableAccounts(): List<OneBotRuntimeAccount> {
+    override suspend fun availableAccounts(): List<OneBotRuntimeAccount> {
         return activeBots.keys
             .map { accountId -> OneBotRuntimeAccount(accountId = accountId) }
             .sortedBy { it.accountId }

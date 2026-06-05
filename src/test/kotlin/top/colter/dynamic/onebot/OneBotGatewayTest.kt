@@ -4,6 +4,7 @@ import cn.evole.onebot.sdk.action.misc.ActionData
 import cn.evole.onebot.sdk.action.misc.ActionList
 import cn.evole.onebot.sdk.action.misc.ActionRaw
 import cn.evole.onebot.sdk.entity.MsgId
+import cn.evole.onebot.sdk.response.contact.LoginInfoResp
 import java.util.LinkedList
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -72,6 +73,19 @@ class OneBotGatewayTest {
         val data = action.requireQueryOk("get_group_list")
 
         assertEquals(listOf("group"), data)
+    }
+
+    @Test
+    fun `require data ok should return response data`() {
+        val action = ActionData<LoginInfoResp>().apply {
+            status = "ok"
+            data = LoginInfoResp(42L, "主机器人")
+        }
+
+        val data = action.requireDataOk("get_login_info")
+
+        assertEquals(42L, data.userId)
+        assertEquals("主机器人", data.nickname)
     }
 
     @Test
