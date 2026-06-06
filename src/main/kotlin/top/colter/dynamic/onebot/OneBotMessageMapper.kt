@@ -4,8 +4,8 @@ import cn.evole.onebot.sdk.entity.ArrayMsg
 import cn.evole.onebot.sdk.enums.MsgType
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
-import java.net.URLDecoder
 import java.net.URI
+import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.InvalidPathException
@@ -16,7 +16,57 @@ import top.colter.dynamic.core.data.Message
 import top.colter.dynamic.core.data.MessageBatch
 import top.colter.dynamic.core.data.MessageContent
 
+public sealed interface OneBotSendUnit {
+    public data class Normal(val message: JsonArray) : OneBotSendUnit
+    public data class Forward(val messages: List<Map<String, Any>>) : OneBotSendUnit
+}
+
 public object OneBotMessageMapper {
+    public fun toSendUnits(message: Message): List<OneBotSendUnit> {
+        return toSendUnits(message.batches)
+    }
+
+    public fun toSendUnits(batches: List<MessageBatch>): List<OneBotSendUnit> {
+        val units = mutableListOf<OneBotSendUnit>()
+        val normalBatches = mutableListOf<MessageBatch>()
+
+        fun flushNormal() {
+            if (normalBatches.isEmpty()) return
+            toJsonArrayMessages(normalBatches).forEach { payload ->
+                units += OneBotSendUnit.Normal(payload)
+            }
+            normalBatches.clear()
+        }
+
+        batches.forEach { batch ->
+            val current = mutableListOf<MessageContent>()
+
+            fun flushBatch() {
+                if (current.isNotEmpty()) {
+                    normalBatches += MessageBatch(current.toList())
+                    current.clear()
+                }
+            }
+
+            batch.content.forEach { content ->
+                when (content) {
+                    is MessageContent.Forward -> {
+                        flushBatch()
+                        flushNormal()
+                        units += OneBotSendUnit.Forward(content.toOneBotForwardNodes())
+                    }
+                    else -> current += content
+                }
+            }
+            flushBatch()
+        }
+        flushNormal()
+
+        return units.ifEmpty {
+            listOf(OneBotSendUnit.Normal(toJsonArray(listOf(text(EMPTY_MESSAGE_TEXT)))))
+        }
+    }
+
     public fun toArrayMessage(message: Message): List<ArrayMsg> {
         return toArrayMessage(message.batches)
     }
@@ -60,7 +110,7 @@ public object OneBotMessageMapper {
         return batches
             .map { it.toArrayMessage() }
             .filter { it.isNotEmpty() }
-            .ifEmpty { listOf(listOf(text("（空消息）"))) }
+            .ifEmpty { listOf(listOf(text(EMPTY_MESSAGE_TEXT))) }
     }
 
     public fun toArrayMessage(batches: List<MessageBatch>): List<ArrayMsg> {
@@ -71,7 +121,7 @@ public object OneBotMessageMapper {
             }
             result += segments
         }
-        return result.ifEmpty { listOf(text("（空消息）")) }
+        return result.ifEmpty { listOf(text(EMPTY_MESSAGE_TEXT)) }
     }
 
     private fun MessageBatch.toArrayMessage(): List<ArrayMsg> {
@@ -103,9 +153,26 @@ public object OneBotMessageMapper {
                     result += segment(MsgType.reply, "id" to item.messageId)
                     result.addText(item.fallbackText)
                 }
+                is MessageContent.Forward -> {
+                    result.addText(item.fallbackText)
+                }
             }
         }
         return result
+    }
+
+    private fun MessageContent.Forward.toOneBotForwardNodes(): List<Map<String, Any>> {
+        return nodes.map { node ->
+            mapOf(
+                "type" to "node",
+                "data" to buildMap<String, Any> {
+                    put("name", node.senderName)
+                    put("uin", node.senderId)
+                    put("content", toJsonArrayMessage(node.batches))
+                    put("time", node.time)
+                },
+            )
+        }
     }
 
     private fun MutableList<ArrayMsg>.addText(value: String) {
@@ -174,6 +241,7 @@ public object OneBotMessageMapper {
         return URI_SCHEME.matches(takeWhile { it != '/' && it != '\\' })
     }
 
+    private const val EMPTY_MESSAGE_TEXT: String = "（空消息）"
     private val WINDOWS_ABSOLUTE_PATH: Regex = Regex("""^([a-zA-Z]):[\\/](.+)$""")
     private val URI_SCHEME: Regex = Regex("""^[a-zA-Z][a-zA-Z0-9+.-]*:.*$""")
 }

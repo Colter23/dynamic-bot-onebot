@@ -125,6 +125,28 @@ internal class ReverseWsOneBotGateway(
         }
     }
 
+    override suspend fun sendPrivateForwardMessage(
+        accountId: String,
+        userId: Long,
+        messages: List<Map<String, Any>>,
+    ): String? {
+        return withContext(Dispatchers.IO) {
+            val action = requireBot(accountId).sendPrivateForwardMsgRaw(userId, messages)
+            action.requireSendAccepted("send_private_forward_msg", userId)
+        }
+    }
+
+    override suspend fun sendGroupForwardMessage(
+        accountId: String,
+        groupId: Long,
+        messages: List<Map<String, Any>>,
+    ): String? {
+        return withContext(Dispatchers.IO) {
+            val action = requireBot(accountId).sendGroupForwardMsgRaw(groupId, messages)
+            action.requireSendAccepted("send_group_forward_msg", groupId)
+        }
+    }
+
     override suspend fun recallMessage(accountId: String, messageId: String) {
         withContext(Dispatchers.IO) {
             val id = messageId.toIntOrNull() ?: error("OneBot 消息 ID 无效：$messageId")

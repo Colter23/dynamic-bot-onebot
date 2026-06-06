@@ -33,6 +33,18 @@ class OneBotGatewayPluginRouteStateTest {
 
         override suspend fun sendGroupMessage(accountId: String, groupId: Long, message: JsonArray): String? = null
 
+        override suspend fun sendPrivateForwardMessage(
+            accountId: String,
+            userId: Long,
+            messages: List<Map<String, Any>>,
+        ): String? = null
+
+        override suspend fun sendGroupForwardMessage(
+            accountId: String,
+            groupId: Long,
+            messages: List<Map<String, Any>>,
+        ): String? = null
+
         override suspend fun recallMessage(accountId: String, messageId: String) {
         }
 

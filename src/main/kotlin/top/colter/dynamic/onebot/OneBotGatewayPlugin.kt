@@ -14,6 +14,7 @@ import top.colter.dynamic.core.plugin.MessageDeliveryRequest
 import top.colter.dynamic.core.plugin.MessageRecallRequest
 import top.colter.dynamic.core.plugin.MessageRecallResult
 import top.colter.dynamic.core.plugin.MessageSendResult
+import top.colter.dynamic.core.plugin.MessageSinkFeature
 import top.colter.dynamic.core.plugin.MessageSinkRoute
 import top.colter.dynamic.core.plugin.MessageSinkRouteState
 import top.colter.dynamic.core.plugin.MessageTargetCandidate
@@ -40,6 +41,7 @@ public class OneBotGatewayPlugin : AccountRoutedMessageSinkPlugin, ConfigurableP
 
     override val transportId: String = "onebot"
     override val transportName: String = "OneBot"
+    override val supportedMessageFeatures: Set<MessageSinkFeature> = setOf(MessageSinkFeature.MERGED_FORWARD)
     override val supportedTargetPlatforms: Set<PlatformId> = setOf(QQ_PLATFORM_ID)
     override val supportedTargetKinds: Set<TargetKind> = setOf(TargetKind.GROUP, TargetKind.USER)
 
@@ -117,15 +119,25 @@ public class OneBotGatewayPlugin : AccountRoutedMessageSinkPlugin, ConfigurableP
         }
 
         val message = request.message
-        val payloads = OneBotMessageMapper.toJsonArrayMessages(message)
+        val units = OneBotMessageMapper.toSendUnits(message)
 
         return when (val target = OneBotTarget.fromAddress(request.target)) {
-            is OneBotTarget.Group -> sendPayloads(routeId, accountId, payloads, "OneBot 消息发送失败") { payload ->
-                gateway.sendGroupMessage(accountId, target.groupId, payload)
-            }
-            is OneBotTarget.User -> sendPayloads(routeId, accountId, payloads, "OneBot 消息发送失败") { payload ->
-                gateway.sendPrivateMessage(accountId, target.userId, payload)
-            }
+            is OneBotTarget.Group -> sendUnits(
+                routeId = routeId,
+                accountId = accountId,
+                units = units,
+                failureLabel = "OneBot 消息发送失败",
+                sendNormal = { payload -> gateway.sendGroupMessage(accountId, target.groupId, payload) },
+                sendForward = { payload -> gateway.sendGroupForwardMessage(accountId, target.groupId, payload) },
+            )
+            is OneBotTarget.User -> sendUnits(
+                routeId = routeId,
+                accountId = accountId,
+                units = units,
+                failureLabel = "OneBot 消息发送失败",
+                sendNormal = { payload -> gateway.sendPrivateMessage(accountId, target.userId, payload) },
+                sendForward = { payload -> gateway.sendPrivateForwardMessage(accountId, target.userId, payload) },
+            )
             is OneBotTarget.Unsupported -> {
                 logger.warn {
                     "跳过 OneBot 目标：messageId=${message.id} targetId=${request.target.externalId} reason=${target.reason}"
@@ -149,24 +161,34 @@ public class OneBotGatewayPlugin : AccountRoutedMessageSinkPlugin, ConfigurableP
             return MessageSendResult.failed("OneBot 账号不可用：$accountId")
         }
 
-        val payload = OneBotMessageMapper.toJsonArrayMessage(request.chain)
-        return runCatching {
-            val sinkMessageId = when (request.target.chatType) {
-                TargetKind.GROUP -> gateway.sendGroupMessage(accountId, request.target.chatId.toLong(), payload)
-                TargetKind.USER -> gateway.sendPrivateMessage(accountId, request.target.chatId.toLong(), payload)
-                else -> {
-                    logger.warn {
-                        "跳过 OneBot 命令结果：traceId=${request.inReplyTo}，不支持目标=${request.target.chatType}:${request.target.chatId}"
-                    }
-                    return MessageSendResult.failed("OneBot 不支持目标类型：${request.target.chatType}", retryable = false)
+        val units = OneBotMessageMapper.toSendUnits(request.chain)
+        return when (request.target.chatType) {
+            TargetKind.GROUP -> sendUnits(
+                routeId = routeId,
+                accountId = accountId,
+                units = units,
+                failureLabel = "OneBot 命令结果发送失败",
+                sendNormal = { payload -> gateway.sendGroupMessage(accountId, request.target.chatId.toLong(), payload) },
+                sendForward = { payload ->
+                    gateway.sendGroupForwardMessage(accountId, request.target.chatId.toLong(), payload)
+                },
+            )
+            TargetKind.USER -> sendUnits(
+                routeId = routeId,
+                accountId = accountId,
+                units = units,
+                failureLabel = "OneBot 命令结果发送失败",
+                sendNormal = { payload -> gateway.sendPrivateMessage(accountId, request.target.chatId.toLong(), payload) },
+                sendForward = { payload ->
+                    gateway.sendPrivateForwardMessage(accountId, request.target.chatId.toLong(), payload)
+                },
+            )
+            else -> {
+                logger.warn {
+                    "跳过 OneBot 命令结果：traceId=${request.inReplyTo}，不支持目标=${request.target.chatType}:${request.target.chatId}"
                 }
+                MessageSendResult.failed("OneBot 不支持目标类型：${request.target.chatType}", retryable = false)
             }
-            MessageSendResult.sent(sinkMessageId, sinkRouteId = routeId, sinkAccountId = accountId)
-        }.getOrElse {
-            logger.warn(it) {
-                "OneBot 命令结果发送失败：traceId=${request.inReplyTo} target=${request.target.chatType}:${request.target.chatId} routeId=$routeId"
-            }
-            MessageSendResult.failed(it.message ?: "OneBot 命令结果发送失败")
         }
     }
 
@@ -223,18 +245,22 @@ public class OneBotGatewayPlugin : AccountRoutedMessageSinkPlugin, ConfigurableP
             )
     }
 
-    private suspend fun sendPayloads(
+    private suspend fun sendUnits(
         routeId: String,
         accountId: String,
-        payloads: List<JsonArray>,
+        units: List<OneBotSendUnit>,
         failureLabel: String,
-        send: suspend (JsonArray) -> String?,
+        sendNormal: suspend (JsonArray) -> String?,
+        sendForward: suspend (List<Map<String, Any>>) -> String?,
     ): MessageSendResult {
         var sentCount = 0
         var sinkMessageId: String? = null
         return runCatching {
-            payloads.forEach { payload ->
-                send(payload)?.let { sinkMessageId = it }
+            units.forEach { unit ->
+                when (unit) {
+                    is OneBotSendUnit.Normal -> sendNormal(unit.message)?.let { sinkMessageId = it }
+                    is OneBotSendUnit.Forward -> sendForward(unit.messages)?.let { sinkMessageId = it }
+                }
                 sentCount += 1
             }
             MessageSendResult.sent(sinkMessageId, sinkRouteId = routeId, sinkAccountId = accountId)

@@ -1,10 +1,13 @@
 package top.colter.dynamic.onebot
 
+import cn.evole.onebot.client.core.Bot
 import cn.evole.onebot.sdk.action.misc.ActionData
 import cn.evole.onebot.sdk.action.misc.ActionList
 import cn.evole.onebot.sdk.action.misc.ActionRaw
 import cn.evole.onebot.sdk.entity.MsgId
+import cn.evole.onebot.sdk.enums.ActionType
 import com.google.gson.JsonArray
+import com.google.gson.JsonObject
 import top.colter.dynamic.core.plugin.MessageSinkRouteState
 
 internal const val ONEBOT_PLUGIN_ID: String = "onebot-gateway"
@@ -40,6 +43,16 @@ public interface OneBotGateway {
     public suspend fun availableAccounts(): List<OneBotRuntimeAccount>
     public suspend fun sendPrivateMessage(accountId: String, userId: Long, message: JsonArray): String?
     public suspend fun sendGroupMessage(accountId: String, groupId: Long, message: JsonArray): String?
+    public suspend fun sendPrivateForwardMessage(
+        accountId: String,
+        userId: Long,
+        messages: List<Map<String, Any>>,
+    ): String?
+    public suspend fun sendGroupForwardMessage(
+        accountId: String,
+        groupId: Long,
+        messages: List<Map<String, Any>>,
+    ): String?
     public suspend fun recallMessage(accountId: String, messageId: String)
     public suspend fun listGroups(accountId: String): List<OneBotTargetCandidate>
     public suspend fun listFriends(accountId: String): List<OneBotTargetCandidate>
@@ -55,6 +68,18 @@ public class NoopOneBotGateway : OneBotGateway {
     override suspend fun sendPrivateMessage(accountId: String, userId: Long, message: JsonArray): String? = null
 
     override suspend fun sendGroupMessage(accountId: String, groupId: Long, message: JsonArray): String? = null
+
+    override suspend fun sendPrivateForwardMessage(
+        accountId: String,
+        userId: Long,
+        messages: List<Map<String, Any>>,
+    ): String? = null
+
+    override suspend fun sendGroupForwardMessage(
+        accountId: String,
+        groupId: Long,
+        messages: List<Map<String, Any>>,
+    ): String? = null
 
     override suspend fun recallMessage(accountId: String, messageId: String) {
     }
@@ -86,7 +111,60 @@ internal fun ActionData<*>?.requireSendAccepted(action: String, targetId: Long):
     if (!status.equals("ok", ignoreCase = true)) {
         error("OneBot 发送失败：action=$action，targetId=$targetId，status=$status，retCode=$retCode")
     }
-    return (data as? MsgId)?.messageId?.toString()
+    return data.extractMessageId()
+}
+
+internal fun Bot.sendGroupForwardMsgRaw(groupId: Long, messages: List<Map<String, Any>>): ActionData<*>? {
+    return customRawRequest(
+        ActionType.SEND_GROUP_FORWARD_MSG,
+        forwardActionParams("group_id", groupId, messages),
+    )
+}
+
+internal fun Bot.sendPrivateForwardMsgRaw(userId: Long, messages: List<Map<String, Any>>): ActionData<*>? {
+    return customRawRequest(
+        ActionType.SEND_PRIVATE_FORWARD_MSG,
+        forwardActionParams("user_id", userId, messages),
+    )
+}
+
+internal fun forwardActionParams(
+    targetKey: String,
+    targetId: Long,
+    messages: List<Map<String, Any>>,
+): Map<String, Any> = mapOf(
+    targetKey to targetId,
+    "messages" to messages,
+)
+
+private fun Any?.extractMessageId(): String? {
+    return when (this) {
+        is MsgId -> messageId.toString()
+        is JsonObject -> sequenceOf("message_id", "messageId")
+            .mapNotNull { key -> get(key)?.takeIf { !it.isJsonNull } }
+            .mapNotNull { element ->
+                when {
+                    element.isJsonPrimitive && element.asJsonPrimitive.isNumber -> element.asLong.toString()
+                    element.isJsonPrimitive && element.asJsonPrimitive.isString ->
+                        element.asString.trim().takeIf(String::isNotBlank)
+                    else -> null
+                }
+            }
+            .firstOrNull()
+        is Map<*, *> -> sequenceOf("message_id", "messageId")
+            .mapNotNull { key -> this[key] }
+            .mapNotNull { value -> value.extractMessageId() ?: value.toMessageIdText() }
+            .firstOrNull()
+        else -> toMessageIdText()
+    }
+}
+
+private fun Any?.toMessageIdText(): String? {
+    return when (this) {
+        is Number -> toLong().toString()
+        is String -> trim().takeIf(String::isNotBlank)
+        else -> null
+    }
 }
 
 internal fun ActionRaw?.requireActionAccepted(action: String) {

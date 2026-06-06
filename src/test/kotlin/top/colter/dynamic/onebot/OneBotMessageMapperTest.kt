@@ -4,7 +4,9 @@ import cn.evole.onebot.sdk.enums.MsgType
 import java.nio.file.Files
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertIs
 import kotlin.test.assertTrue
+import top.colter.dynamic.core.data.ForwardNode
 import top.colter.dynamic.core.data.MediaKind
 import top.colter.dynamic.core.data.MediaRef
 import top.colter.dynamic.core.data.Message
@@ -141,6 +143,64 @@ class OneBotMessageMapperTest {
         } finally {
             Files.deleteIfExists(image)
         }
+    }
+
+    @Test
+    fun `format mixed normal and merged forward send units`() {
+        val message = Message(
+            id = "forward-1",
+            time = 1,
+            targets = listOf(demoTarget(TargetKind.GROUP, "123456")),
+            batches = listOf(
+                MessageBatch(
+                    listOf(
+                        MessageContent.Text("before"),
+                        MessageContent.Forward(
+                            fallbackText = "[合并转发] Demo UP",
+                            title = "原始内容",
+                            summary = "共 1 条内容",
+                            sourceName = "Demo UP",
+                            nodes = listOf(
+                                ForwardNode(
+                                    senderId = "123",
+                                    senderName = "Demo UP",
+                                    time = 1_710_000_000,
+                                    batches = listOf(
+                                        MessageBatch(
+                                            listOf(
+                                                MessageContent.Image(
+                                                    fallbackText = "",
+                                                    image = MediaRef("https://example.com/a.png", MediaKind.IMAGE),
+                                                ),
+                                                MessageContent.Text("node text"),
+                                            ),
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        ),
+                        MessageContent.Text("after"),
+                    ),
+                ),
+            ),
+        )
+
+        val units = OneBotMessageMapper.toSendUnits(message)
+
+        assertEquals(3, units.size)
+        assertEquals("before", assertIs<OneBotSendUnit.Normal>(units[0]).message[0].asJsonObject["data"].asJsonObject["text"].asString)
+        val forward = assertIs<OneBotSendUnit.Forward>(units[1])
+        val node = forward.messages.single()
+        assertEquals("node", node["type"])
+        val data = assertIs<Map<*, *>>(node["data"])
+        assertEquals("Demo UP", data["name"])
+        assertEquals("123", data["uin"])
+        assertEquals(1_710_000_000L, data["time"])
+        val content = assertIs<com.google.gson.JsonArray>(data["content"])
+        assertEquals("image", content[0].asJsonObject["type"].asString)
+        assertEquals("https://example.com/a.png", content[0].asJsonObject["data"].asJsonObject["file"].asString)
+        assertEquals("node text", content[1].asJsonObject["data"].asJsonObject["text"].asString)
+        assertEquals("after", assertIs<OneBotSendUnit.Normal>(units[2]).message[0].asJsonObject["data"].asJsonObject["text"].asString)
     }
 
     private fun demoMessage(contents: List<MessageContent>): Message {

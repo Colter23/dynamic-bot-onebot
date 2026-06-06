@@ -5,6 +5,8 @@ import cn.evole.onebot.sdk.action.misc.ActionList
 import cn.evole.onebot.sdk.action.misc.ActionRaw
 import cn.evole.onebot.sdk.entity.MsgId
 import cn.evole.onebot.sdk.response.contact.LoginInfoResp
+import com.google.gson.JsonArray
+import com.google.gson.JsonObject
 import java.util.LinkedList
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -39,6 +41,56 @@ class OneBotGatewayTest {
         val messageId = action.requireSendAccepted("send_private_msg", 123)
 
         assertEquals("321", messageId)
+    }
+
+    @Test
+    fun `send accepted should return message id from raw action map data`() {
+        val action = ActionData<Map<String, Any>>().apply {
+            status = "ok"
+            data = mapOf("message_id" to 321.0)
+        }
+
+        val messageId = action.requireSendAccepted("send_group_forward_msg", 123)
+
+        assertEquals("321", messageId)
+    }
+
+    @Test
+    fun `send accepted should return message id from raw action json data`() {
+        val action = ActionData<JsonObject>().apply {
+            status = "ok"
+            data = JsonObject().apply { addProperty("message_id", 321) }
+        }
+
+        val messageId = action.requireSendAccepted("send_group_forward_msg", 123)
+
+        assertEquals("321", messageId)
+    }
+
+    @Test
+    fun `forward action params should keep messages as array object`() {
+        val content = JsonArray().apply {
+            add(JsonObject().apply {
+                addProperty("type", "text")
+                add("data", JsonObject().apply { addProperty("text", "hello") })
+            })
+        }
+        val messages = listOf(
+            mapOf(
+                "type" to "node",
+                "data" to mapOf(
+                    "name" to "Bot",
+                    "uin" to "42",
+                    "content" to content,
+                ),
+            ),
+        )
+
+        val params = forwardActionParams("group_id", 10001, messages)
+
+        assertEquals(10001L, params["group_id"])
+        assertEquals(messages, params["messages"])
+        assertTrue(params["messages"] is List<*>)
     }
 
     @Test
