@@ -50,7 +50,7 @@ internal class ForwardWsOneBotGateway(
 
     override suspend fun availableAccounts(): List<OneBotRuntimeAccount> = withContext(Dispatchers.IO) {
         connections
-            .mapNotNull { connection -> connection.refreshRuntimeAccount() }
+            .mapNotNull { connection -> connection.cachedOrRefreshRuntimeAccount() }
             .distinctBy { it.accountId }
             .sortedBy { it.accountId }
     }
@@ -150,6 +150,14 @@ internal class ForwardWsOneBotGateway(
 
     private fun ForwardConnection.knownAccountId(): String? {
         return account?.accountId ?: client.runtimeAccountId()
+    }
+
+    private fun ForwardConnection.cachedOrRefreshRuntimeAccount(): OneBotRuntimeAccount? {
+        val current = account
+        if (current != null && current.state == MessageSinkRouteState.READY) {
+            return current
+        }
+        return refreshRuntimeAccount()
     }
 
     private fun ForwardConnection.refreshRuntimeAccount(): OneBotRuntimeAccount? {
