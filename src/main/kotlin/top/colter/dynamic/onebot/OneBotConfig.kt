@@ -9,12 +9,13 @@ import top.colter.dynamic.core.config.ConfigNumberKind
 public data class OneBotConfig(
     val mode: OneBotConnectionMode = OneBotConnectionMode.FORWARD_WS,
     val connections: List<OneBotForwardConnectionConfig> = listOf(OneBotForwardConnectionConfig()),
-    val host: String = "0.0.0.0",
+    val host: String = "127.0.0.1",
     val port: Int = 6701,
     val reverseAccessToken: String = "",
     val reconnect: Boolean = true,
     val reconnectIntervalSeconds: Int = 5,
     val reconnectMaxTimes: Int = 3,
+    val localImageBase64MaxBytes: Long = 5L * 1024L * 1024L,
 )
 
 public data class OneBotForwardConnectionConfig(
@@ -132,6 +133,15 @@ public object OneBotConfigForm {
                 restartTarget = "OneBot 插件",
                 visibleWhen = forwardWsOnly(),
             ),
+            ConfigFieldSpec(
+                path = "localImageBase64MaxBytes",
+                label = "本地图片 Base64 阈值",
+                type = ConfigFieldType.NUMBER,
+                section = "消息",
+                description = "本地图片不超过该字节数时转为 base64；超过时发送 file URI。0 表示不转 base64。",
+                min = 0,
+                numberKind = ConfigNumberKind.INTEGER,
+            ),
         ),
     )
 
@@ -149,6 +159,7 @@ public object OneBotConfigForm {
         require(config.port in 1..65_535) { "反向 WebSocket 端口必须在 1 到 65535 之间" }
         require(config.reconnectIntervalSeconds >= 1) { "重连间隔不能小于 1 秒" }
         require(config.reconnectMaxTimes >= 0) { "最大重连次数不能为负数" }
+        require(config.localImageBase64MaxBytes >= 0) { "本地图片 Base64 阈值不能为负数" }
 
         when (config.mode) {
             OneBotConnectionMode.FORWARD_WS -> {
@@ -160,9 +171,20 @@ public object OneBotConfigForm {
             }
             OneBotConnectionMode.REVERSE_WS -> {
                 require(config.host.isNotBlank()) { "反向 WebSocket 监听地址不能为空" }
+                require(config.reverseAccessToken.isNotBlank() || config.host.isLocalBindAddress()) {
+                    "反向 WebSocket 监听非本地地址时必须配置 Token"
+                }
             }
         }
     }
+}
+
+private fun String.isLocalBindAddress(): Boolean {
+    val value = trim().lowercase()
+    return value == "localhost" ||
+        value == "::1" ||
+        value == "0:0:0:0:0:0:0:1" ||
+        value.startsWith("127.")
 }
 
 internal fun OneBotConfig.enabledConnections(): List<OneBotForwardConnectionConfig> {

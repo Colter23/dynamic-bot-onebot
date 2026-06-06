@@ -1,6 +1,12 @@
 package top.colter.dynamic.onebot
 
 import com.google.gson.JsonArray
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import top.colter.dynamic.core.command.CommandPublisher
 import top.colter.dynamic.core.config.ConfigApplyResult
 import top.colter.dynamic.core.config.ConfigurablePlugin
@@ -30,6 +36,9 @@ public class OneBotGatewayPlugin : AccountRoutedMessageSinkPlugin, ConfigurableP
     private var config: OneBotConfig = OneBotConfig()
     private var gateway: OneBotGateway = NoopOneBotGateway()
     private lateinit var commandPublisher: CommandPublisher
+    private lateinit var pluginScope: CoroutineScope
+    private var incomingScope: CoroutineScope? = null
+    private var incomingJob: Job? = null
     private var running: Boolean = false
 
     override val configId: String
@@ -48,8 +57,10 @@ public class OneBotGatewayPlugin : AccountRoutedMessageSinkPlugin, ConfigurableP
     override suspend fun onLoad(context: PluginContext) {
         pluginId = context.pluginId
         commandPublisher = context.commandPublisher
+        pluginScope = context.scope
         config = context.configService.loadOrCreate(pluginId) { OneBotConfig() }
         OneBotConfigForm.validate(config)
+        OneBotMessageMapper.configure(config.localImageBase64MaxBytes)
         logger.info { "OneBot 配置已加载：pluginId=$pluginId，mode=${config.mode}" }
     }
 
@@ -58,9 +69,11 @@ public class OneBotGatewayPlugin : AccountRoutedMessageSinkPlugin, ConfigurableP
 
         OneBotConfigForm.validate(config)
         gateway = OneBotGatewayFactory.create(config)
+        startIncomingScope()
         runCatching {
             gateway.connect(::onIncomingMessage)
         }.onFailure {
+            stopIncomingScope()
             gateway.close()
             gateway = NoopOneBotGateway()
             logger.error(it) { "OneBot 启动失败：mode=${config.mode} endpoint=${config.endpointLabel()}" }
@@ -76,6 +89,7 @@ public class OneBotGatewayPlugin : AccountRoutedMessageSinkPlugin, ConfigurableP
         running = false
         gateway.close()
         gateway = NoopOneBotGateway()
+        stopIncomingScope()
         logger.info { "OneBot 已停止" }
     }
 
@@ -85,6 +99,7 @@ public class OneBotGatewayPlugin : AccountRoutedMessageSinkPlugin, ConfigurableP
         OneBotConfigForm.validate(next)
         val changed = next != config
         config = next
+        OneBotMessageMapper.configure(config.localImageBase64MaxBytes)
         return ConfigApplyResult(
             changed = changed,
             restartRequired = changed,
@@ -347,13 +362,31 @@ public class OneBotGatewayPlugin : AccountRoutedMessageSinkPlugin, ConfigurableP
             incoming = incoming,
         ) ?: return
 
-        runCatching {
-            kotlinx.coroutines.runBlocking {
+        val scope = incomingScope ?: return
+        scope.launch {
+            if (!running) return@launch
+            try {
                 commandPublisher.publish(commandRequest)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                logger.warn(e) { "OneBot 命令事件提交失败：traceId=${commandRequest.traceId}" }
             }
-        }.onFailure {
-            logger.warn(it) { "OneBot 命令事件提交失败：traceId=${commandRequest.traceId}" }
         }
+    }
+
+    private fun startIncomingScope() {
+        stopIncomingScope()
+        val parentJob = pluginScope.coroutineContext[Job]
+        val job = if (parentJob != null) SupervisorJob(parentJob) else SupervisorJob()
+        incomingJob = job
+        incomingScope = CoroutineScope(pluginScope.coroutineContext.minusKey(Job) + job)
+    }
+
+    private fun stopIncomingScope() {
+        incomingJob?.cancel("OneBot plugin stopped")
+        incomingJob = null
+        incomingScope = null
     }
 
     private fun OneBotConfig.endpointLabel(): String {

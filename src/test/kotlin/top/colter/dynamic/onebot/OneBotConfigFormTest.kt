@@ -15,6 +15,7 @@ class OneBotConfigFormTest {
         val reconnectField = OneBotConfigForm.spec.fields.single { it.path == "reconnect" }
         val reconnectMaxTimesField = OneBotConfigForm.spec.fields.single { it.path == "reconnectMaxTimes" }
         val hostField = OneBotConfigForm.spec.fields.single { it.path == "host" }
+        val localImageBase64MaxBytesField = OneBotConfigForm.spec.fields.single { it.path == "localImageBase64MaxBytes" }
 
         assertEquals(ConfigFieldType.JSON, connectionsField.type)
         assertEquals("ONEBOT_CONNECTION_TABLE", connectionsField.component)
@@ -29,6 +30,8 @@ class OneBotConfigFormTest {
         assertTrue(reconnectField.description.contains("仅正向 WebSocket 生效"))
         assertEquals(0, reconnectMaxTimesField.min)
         assertTrue(reconnectMaxTimesField.description.contains("0 表示不重连"))
+        assertEquals(0, localImageBase64MaxBytesField.min)
+        assertTrue(localImageBase64MaxBytesField.description.contains("超过时发送 file URI"))
     }
 
     @Test
@@ -41,6 +44,7 @@ class OneBotConfigFormTest {
         assertTrue(config.reconnect)
         assertEquals(5, config.reconnectIntervalSeconds)
         assertEquals(3, config.reconnectMaxTimes)
+        assertEquals(5L * 1024L * 1024L, config.localImageBase64MaxBytes)
     }
 
     @Test
@@ -86,6 +90,30 @@ class OneBotConfigFormTest {
             )
         }
         assertEquals("正向连接[0].url 不能为空", blankUrl.message)
+
+        val blankTokenOnPublicBind = assertFailsWith<IllegalArgumentException> {
+            OneBotConfigForm.validate(
+                OneBotConfig(
+                    mode = OneBotConnectionMode.REVERSE_WS,
+                    host = "0.0.0.0",
+                    reverseAccessToken = "",
+                ),
+            )
+        }
+        assertEquals("反向 WebSocket 监听非本地地址时必须配置 Token", blankTokenOnPublicBind.message)
+
+        OneBotConfigForm.validate(
+            OneBotConfig(
+                mode = OneBotConnectionMode.REVERSE_WS,
+                host = "0.0.0.0",
+                reverseAccessToken = "token",
+            ),
+        )
+
+        val negativeImageThreshold = assertFailsWith<IllegalArgumentException> {
+            OneBotConfigForm.validate(OneBotConfig(localImageBase64MaxBytes = -1))
+        }
+        assertEquals("本地图片 Base64 阈值不能为负数", negativeImageThreshold.message)
     }
 
     @Test

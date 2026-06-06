@@ -2,6 +2,7 @@ package top.colter.dynamic.onebot
 
 import cn.evole.onebot.sdk.enums.MsgType
 import java.nio.file.Files
+import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -16,6 +17,11 @@ import top.colter.dynamic.core.data.TargetAddress
 import top.colter.dynamic.core.data.TargetKind
 
 class OneBotMessageMapperTest {
+
+    @AfterTest
+    fun resetMapperConfig() {
+        OneBotMessageMapper.configure()
+    }
 
     @Test
     fun `route group message`() {
@@ -140,6 +146,29 @@ class OneBotMessageMapperTest {
             val payload = OneBotMessageMapper.toJsonArrayMessage(message)
 
             assertEquals("base64://AQID", payload[0].asJsonObject["data"].asJsonObject["file"].asString)
+        } finally {
+            Files.deleteIfExists(image)
+        }
+    }
+
+    @Test
+    fun `format oversized local image as file uri`() {
+        val image = Files.createTempFile("onebot-image-large", ".png")
+        try {
+            Files.write(image, byteArrayOf(1, 2, 3))
+            OneBotMessageMapper.configure(localImageBase64MaxBytes = 2)
+            val message = demoMessage(
+                listOf(
+                    MessageContent.Image(
+                        fallbackText = "",
+                        image = MediaRef(image.toString(), MediaKind.IMAGE),
+                    ),
+                ),
+            )
+
+            val payload = OneBotMessageMapper.toJsonArrayMessage(message)
+
+            assertEquals(image.toUri().toString(), payload[0].asJsonObject["data"].asJsonObject["file"].asString)
         } finally {
             Files.deleteIfExists(image)
         }

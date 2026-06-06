@@ -22,6 +22,13 @@ public sealed interface OneBotSendUnit {
 }
 
 public object OneBotMessageMapper {
+    @Volatile
+    private var localImageBase64MaxBytes: Long = DEFAULT_LOCAL_IMAGE_BASE64_MAX_BYTES
+
+    public fun configure(localImageBase64MaxBytes: Long = DEFAULT_LOCAL_IMAGE_BASE64_MAX_BYTES) {
+        this.localImageBase64MaxBytes = localImageBase64MaxBytes.coerceAtLeast(0)
+    }
+
     public fun toSendUnits(message: Message): List<OneBotSendUnit> {
         return toSendUnits(message.batches)
     }
@@ -192,6 +199,7 @@ public object OneBotMessageMapper {
     private fun String.toOneBotImageFile(): String {
         return localReadablePath()
             ?.takeIf { Files.isRegularFile(it) }
+            ?.takeIf { path -> Files.size(path) <= localImageBase64MaxBytes }
             ?.let { path -> "base64://${Base64.getEncoder().encodeToString(Files.readAllBytes(path))}" }
             ?: toOneBotFileUri()
     }
@@ -242,6 +250,7 @@ public object OneBotMessageMapper {
     }
 
     private const val EMPTY_MESSAGE_TEXT: String = "（空消息）"
+    private const val DEFAULT_LOCAL_IMAGE_BASE64_MAX_BYTES: Long = 5L * 1024L * 1024L
     private val WINDOWS_ABSOLUTE_PATH: Regex = Regex("""^([a-zA-Z]):[\\/](.+)$""")
     private val URI_SCHEME: Regex = Regex("""^[a-zA-Z][a-zA-Z0-9+.-]*:.*$""")
 }

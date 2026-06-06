@@ -20,7 +20,7 @@ dependencies {
     val log4jVersion = "2.25.4"
 
     implementation("top.colter.dynamic:dynamic-bot-core:0.0.6")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
 
     implementation("cn.evole.onebot:OneBot-Client:0.4.3")
     implementation("io.github.oshai:kotlin-logging-jvm:7.0.0")
@@ -32,7 +32,7 @@ dependencies {
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.20.0")
 
     testImplementation(kotlin("test"))
-    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
     testRuntimeOnly("org.slf4j:slf4j-api:2.0.13")
     testRuntimeOnly("ch.qos.logback:logback-classic:1.5.16")
     testRuntimeOnly("org.apache.logging.log4j:log4j-to-slf4j:$log4jVersion")
