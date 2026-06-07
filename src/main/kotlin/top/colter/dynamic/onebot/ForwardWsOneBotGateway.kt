@@ -144,7 +144,9 @@ internal class ForwardWsOneBotGateway(
 
     private fun requireBot(accountId: String): Bot {
         return connections.firstNotNullOfOrNull { connection ->
-            connection.client.takeIf { connection.knownAccountId() == accountId }?.bot
+            connection.client
+                .takeIf { connection.knownAccountId() == accountId && it.isOpenForAction() }
+                ?.bot
         } ?: error("OneBot 正向连接尚未就绪：accountId=$accountId")
     }
 
@@ -154,6 +156,10 @@ internal class ForwardWsOneBotGateway(
 
     private fun ForwardConnection.cachedOrRefreshRuntimeAccount(): OneBotRuntimeAccount? {
         val current = account
+        if (!client.isOpenForAction()) {
+            markUnavailable(IllegalStateException("OneBot 正向连接未连接"), warnWhenAccountUnknown = false)
+            return account
+        }
         if (current != null && current.state == MessageSinkRouteState.READY) {
             return current
         }
@@ -184,10 +190,10 @@ internal class ForwardWsOneBotGateway(
         }.getOrNull() ?: account
     }
 
-    private fun ForwardConnection.markUnavailable(error: Throwable) {
+    private fun ForwardConnection.markUnavailable(error: Throwable, warnWhenAccountUnknown: Boolean = true) {
         val accountId = account?.accountId ?: client.runtimeAccountId()
         if (accountId == null) {
-            logger.warn(error) { "OneBot 正向连接账号识别失败：connectionId=$connectionId，name=${name.ifBlank { "-" }}，url=$url" }
+            logAccountIdentifyFailure(error, warnWhenAccountUnknown)
             return
         }
 
@@ -206,8 +212,30 @@ internal class ForwardWsOneBotGateway(
         }
     }
 
+    private fun ForwardConnection.logAccountIdentifyFailure(error: Throwable, warn: Boolean) {
+        val now = System.currentTimeMillis()
+        val failureKey = error.message ?: error::class.qualifiedName ?: error::class.simpleName ?: "unknown"
+        val shouldWarn = warn && (lastIdentifyFailureKey != failureKey ||
+            now - lastIdentifyFailureLogAt >= IDENTIFY_FAILURE_WARN_INTERVAL_MS)
+        lastIdentifyFailureKey = failureKey
+        lastIdentifyFailureLogAt = now
+        if (shouldWarn) {
+            logger.warn(error) {
+                "OneBot 正向连接账号识别失败：connectionId=$connectionId，name=${name.ifBlank { "-" }}，url=$url"
+            }
+        } else {
+            logger.debug(error) {
+                "OneBot 正向连接账号暂未识别：connectionId=$connectionId，name=${name.ifBlank { "-" }}，url=$url"
+            }
+        }
+    }
+
     private fun OneBotClient.runtimeAccountId(): String? {
         return bot?.selfId?.takeIf { it > 0 }?.toString()
+    }
+
+    private fun OneBotClient.isOpenForAction(): Boolean {
+        return runCatching { ws?.isOpen == true }.getOrDefault(false)
     }
 
     private data class ForwardConnection(
@@ -217,5 +245,13 @@ internal class ForwardWsOneBotGateway(
         val client: OneBotClient,
         @Volatile
         var account: OneBotRuntimeAccount? = null,
+        @Volatile
+        var lastIdentifyFailureLogAt: Long = 0L,
+        @Volatile
+        var lastIdentifyFailureKey: String? = null,
     )
+
+    private companion object {
+        private const val IDENTIFY_FAILURE_WARN_INTERVAL_MS: Long = 5 * 60 * 1000L
+    }
 }
