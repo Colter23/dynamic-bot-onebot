@@ -104,6 +104,15 @@ public object OneBotConfigForm {
                 visibleWhen = reverseWsOnly(),
             ),
             ConfigFieldSpec(
+                path = "localImageBase64MaxBytes",
+                label = "小图转 Base64 上限（字节）",
+                type = ConfigFieldType.NUMBER,
+                section = "消息",
+                description = "小于这个大小的本地图片会转成 Base64 发送。\n较大的图片会使用 file URI；设为 0 表示全部使用 file URI。",
+                min = 0,
+                numberKind = ConfigNumberKind.INTEGER,
+            ),
+            ConfigFieldSpec(
                 path = "reconnect",
                 label = "自动重连",
                 type = ConfigFieldType.BOOLEAN,
@@ -136,15 +145,6 @@ public object OneBotConfigForm {
                 restartRequired = true,
                 restartTarget = "OneBot 插件",
                 visibleWhen = forwardWsOnly(),
-            ),
-            ConfigFieldSpec(
-                path = "localImageBase64MaxBytes",
-                label = "小图转 Base64 上限",
-                type = ConfigFieldType.NUMBER,
-                section = "消息",
-                description = "小于这个大小的本地图片会转成 Base64 发送。\n较大的图片会使用 file URI；设为 0 表示全部使用 file URI。",
-                min = 0,
-                numberKind = ConfigNumberKind.INTEGER,
             ),
         ),
     )
