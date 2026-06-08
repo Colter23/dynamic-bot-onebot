@@ -93,7 +93,7 @@ internal class ForwardWsOneBotGateway(
 
     override suspend fun recallMessage(accountId: String, messageId: String) {
         withContext(Dispatchers.IO) {
-            val id = messageId.toIntOrNull() ?: error("OneBot 消息 ID 无效：$messageId")
+            val id = parseRecallMessageId(messageId)
             requireBot(accountId).deleteMsg(id).requireActionAccepted("delete_msg")
         }
     }

@@ -101,6 +101,15 @@ internal object OneBotGatewayFactory {
     }
 }
 
+internal fun parseRecallMessageId(messageId: String): Int {
+    val numeric = messageId.trim().toLongOrNull()
+        ?: error("OneBot 消息 ID 无效：$messageId")
+    if (numeric < Int.MIN_VALUE || numeric > Int.MAX_VALUE) {
+        error("OneBot 消息 ID 超出当前客户端库支持范围（int32），无法撤回：$messageId")
+    }
+    return numeric.toInt()
+}
+
 internal fun ActionData<*>?.requireSendAccepted(action: String, targetId: Long): String? {
     if (this == null) {
         return null

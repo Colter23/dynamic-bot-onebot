@@ -29,6 +29,7 @@ import top.colter.dynamic.core.tools.loggerFor
 
 private val logger = loggerFor<OneBotGatewayPlugin>()
 private val QQ_PLATFORM_ID = PlatformId.of("qq")
+private const val SINK_MESSAGE_ID_SEPARATOR = ","
 
 public class OneBotGatewayPlugin : AccountRoutedMessageSinkPlugin, ConfigurablePlugin<OneBotConfig> {
 
@@ -217,14 +218,26 @@ public class OneBotGatewayPlugin : AccountRoutedMessageSinkPlugin, ConfigurableP
         if (!isAccountReady(accountId)) {
             return MessageRecallResult.failed("OneBot 账号不可用：$accountId")
         }
-        return runCatching {
-            gateway.recallMessage(accountId, request.sinkMessageId)
+        val messageIds = decodeSinkMessageIds(request.sinkMessageId)
+        if (messageIds.isEmpty()) {
+            return MessageRecallResult.failed("OneBot 消息 ID 为空，无法撤回")
+        }
+        var recalledAny = false
+        var lastError: Throwable? = null
+        for (messageId in messageIds) {
+            runCatching { gateway.recallMessage(accountId, messageId) }
+                .onSuccess { recalledAny = true }
+                .onFailure { error ->
+                    lastError = error
+                    logger.debug(error) {
+                        "OneBot 消息分段撤回失败：target=${request.target.externalId} sinkMessageId=$messageId routeId=$routeId"
+                    }
+                }
+        }
+        return if (recalledAny) {
             MessageRecallResult.recalled()
-        }.getOrElse {
-            logger.debug(it) {
-                "OneBot 消息撤回失败：target=${request.target.externalId} sinkMessageId=${request.sinkMessageId} routeId=$routeId"
-            }
-            MessageRecallResult.failed(it.message ?: "OneBot 消息撤回失败")
+        } else {
+            MessageRecallResult.failed(lastError?.message ?: "OneBot 消息撤回失败")
         }
     }
 
@@ -260,6 +273,18 @@ public class OneBotGatewayPlugin : AccountRoutedMessageSinkPlugin, ConfigurableP
             )
     }
 
+    private fun encodeSinkMessageIds(ids: List<String>): String? {
+        val cleaned = ids.mapNotNull { it.trim().takeIf(String::isNotBlank) }
+        return cleaned.takeIf { it.isNotEmpty() }?.joinToString(SINK_MESSAGE_ID_SEPARATOR)
+    }
+
+    private fun decodeSinkMessageIds(encoded: String?): List<String> {
+        return encoded
+            ?.split(SINK_MESSAGE_ID_SEPARATOR)
+            ?.mapNotNull { it.trim().takeIf(String::isNotBlank) }
+            .orEmpty()
+    }
+
     private suspend fun sendUnits(
         routeId: String,
         accountId: String,
@@ -269,16 +294,16 @@ public class OneBotGatewayPlugin : AccountRoutedMessageSinkPlugin, ConfigurableP
         sendForward: suspend (List<Map<String, Any>>) -> String?,
     ): MessageSendResult {
         var sentCount = 0
-        var sinkMessageId: String? = null
+        val sinkMessageIds = mutableListOf<String>()
         return runCatching {
             units.forEach { unit ->
                 when (unit) {
-                    is OneBotSendUnit.Normal -> sendNormal(unit.message)?.let { sinkMessageId = it }
-                    is OneBotSendUnit.Forward -> sendForward(unit.messages)?.let { sinkMessageId = it }
+                    is OneBotSendUnit.Normal -> sendNormal(unit.message)?.let { sinkMessageIds += it }
+                    is OneBotSendUnit.Forward -> sendForward(unit.messages)?.let { sinkMessageIds += it }
                 }
                 sentCount += 1
             }
-            MessageSendResult.sent(sinkMessageId, sinkRouteId = routeId, sinkAccountId = accountId)
+            MessageSendResult.sent(encodeSinkMessageIds(sinkMessageIds), sinkRouteId = routeId, sinkAccountId = accountId)
         }.getOrElse {
             MessageSendResult.failed(
                 reason = it.message ?: failureLabel,
