@@ -4,6 +4,7 @@ import top.colter.dynamic.core.config.ConfigFieldSpec
 import top.colter.dynamic.core.config.ConfigFieldType
 import top.colter.dynamic.core.config.ConfigFieldVisibility
 import top.colter.dynamic.core.config.ConfigFormSpec
+import top.colter.dynamic.core.config.ConfigMigration
 import top.colter.dynamic.core.config.ConfigNumberKind
 
 public data class OneBotConfig(
@@ -14,7 +15,6 @@ public data class OneBotConfig(
     val reverseAccessToken: String = "",
     val reconnect: Boolean = true,
     val reconnectIntervalSeconds: Int = 5,
-    val reconnectMaxTimes: Int = 3,
     val localImageBase64MaxBytes: Long = 5L * 1024L * 1024L,
 )
 
@@ -31,6 +31,15 @@ public enum class OneBotConnectionMode {
 }
 
 public object OneBotConfigForm {
+    public val migrations: List<ConfigMigration> = listOf(
+        ConfigMigration(
+            id = "remove-reconnect-max-times",
+            description = "删除旧版 SDK 最大重连次数配置，统一由插件按重连间隔长期重建客户端",
+        ) {
+            remove("reconnectMaxTimes")
+        },
+    )
+
     public val spec: ConfigFormSpec = ConfigFormSpec(
         title = "OneBot 网关",
         description = "OneBot 连接与消息投递配置；账号会在连接后自动识别。",
@@ -117,7 +126,7 @@ public object OneBotConfigForm {
                 label = "自动重连",
                 type = ConfigFieldType.BOOLEAN,
                 section = "重连",
-                description = "正向连接断开后是否自动重连。\n反向模式由 OneBot 客户端自己重连，这个开关不会生效。",
+                description = "正向连接不可用后是否由插件定时重建客户端。\n关闭后断线需要手动重启插件；反向模式由 OneBot 客户端自己重连。",
                 restartRequired = true,
                 restartTarget = "OneBot 插件",
                 visibleWhen = forwardWsOnly(),
@@ -127,20 +136,8 @@ public object OneBotConfigForm {
                 label = "重连间隔（秒）",
                 type = ConfigFieldType.NUMBER,
                 section = "重连",
-                description = "正向连接失败后等多久再试。\n只对正向 WebSocket 生效。",
+                description = "正向连接不可用后，每隔多久重新发起一次连接。\n只对正向 WebSocket 生效。",
                 min = 1,
-                numberKind = ConfigNumberKind.INTEGER,
-                restartRequired = true,
-                restartTarget = "OneBot 插件",
-                visibleWhen = forwardWsOnly(),
-            ),
-            ConfigFieldSpec(
-                path = "reconnectMaxTimes",
-                label = "重连次数上限",
-                type = ConfigFieldType.NUMBER,
-                section = "重连",
-                description = "正向连接最多重试几次。\n设为 0 表示不自动重连。",
-                min = 0,
                 numberKind = ConfigNumberKind.INTEGER,
                 restartRequired = true,
                 restartTarget = "OneBot 插件",
@@ -162,7 +159,6 @@ public object OneBotConfigForm {
     public fun validate(config: OneBotConfig) {
         require(config.port in 1..65_535) { "反向 WebSocket 端口必须在 1 到 65535 之间" }
         require(config.reconnectIntervalSeconds >= 1) { "重连间隔不能小于 1 秒" }
-        require(config.reconnectMaxTimes >= 0) { "最大重连次数不能为负数" }
         require(config.localImageBase64MaxBytes >= 0) { "本地图片 Base64 阈值不能为负数" }
 
         when (config.mode) {

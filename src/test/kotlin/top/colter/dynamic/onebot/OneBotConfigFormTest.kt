@@ -13,7 +13,7 @@ class OneBotConfigFormTest {
         val reverseTokenField = OneBotConfigForm.spec.fields.single { it.path == "reverseAccessToken" }
         val portField = OneBotConfigForm.spec.fields.single { it.path == "port" }
         val reconnectField = OneBotConfigForm.spec.fields.single { it.path == "reconnect" }
-        val reconnectMaxTimesField = OneBotConfigForm.spec.fields.single { it.path == "reconnectMaxTimes" }
+        val reconnectIntervalField = OneBotConfigForm.spec.fields.single { it.path == "reconnectIntervalSeconds" }
         val hostField = OneBotConfigForm.spec.fields.single { it.path == "host" }
         val localImageBase64MaxBytesField = OneBotConfigForm.spec.fields.single { it.path == "localImageBase64MaxBytes" }
 
@@ -27,11 +27,11 @@ class OneBotConfigFormTest {
         assertEquals(1, portField.min)
         assertEquals(65_535, portField.max)
         assertEquals(listOf(OneBotConnectionMode.REVERSE_WS.name), hostField.visibleWhen?.values)
-        assertTrue(reconnectField.description.contains("仅正向 WebSocket 生效"))
-        assertEquals(0, reconnectMaxTimesField.min)
-        assertTrue(reconnectMaxTimesField.description.contains("0 表示不重连"))
+        assertTrue(reconnectField.description.contains("手动重启插件"))
+        assertEquals(1, reconnectIntervalField.min)
+        assertEquals(listOf(OneBotConnectionMode.FORWARD_WS.name), reconnectIntervalField.visibleWhen?.values)
         assertEquals(0, localImageBase64MaxBytesField.min)
-        assertTrue(localImageBase64MaxBytesField.description.contains("超过时发送 file URI"))
+        assertTrue(localImageBase64MaxBytesField.description.contains("较大的图片会使用 file URI"))
     }
 
     @Test
@@ -43,7 +43,6 @@ class OneBotConfigFormTest {
         assertEquals(listOf(""), config.connections.map { it.name })
         assertTrue(config.reconnect)
         assertEquals(5, config.reconnectIntervalSeconds)
-        assertEquals(3, config.reconnectMaxTimes)
         assertEquals(5L * 1024L * 1024L, config.localImageBase64MaxBytes)
     }
 

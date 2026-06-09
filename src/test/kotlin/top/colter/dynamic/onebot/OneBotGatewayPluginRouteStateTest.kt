@@ -3,7 +3,15 @@ package top.colter.dynamic.onebot
 import com.google.gson.JsonArray
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlinx.coroutines.runBlocking
+import top.colter.dynamic.core.data.CommandTarget
+import top.colter.dynamic.core.data.MessageBatch
+import top.colter.dynamic.core.data.MessageContent
+import top.colter.dynamic.core.data.TargetAddress
+import top.colter.dynamic.core.data.TargetKind
+import top.colter.dynamic.core.plugin.CommandResultSendRequest
+import top.colter.dynamic.core.plugin.MessageSendResult
 import top.colter.dynamic.core.plugin.MessageSinkRouteState
 
 class OneBotGatewayPluginRouteStateTest {
@@ -19,9 +27,36 @@ class OneBotGatewayPluginRouteStateTest {
         assertEquals("42", route.accountId)
     }
 
+    @Test
+    fun `command result should reject invalid target id without sending`() = runBlocking {
+        val plugin = OneBotGatewayPlugin()
+        val gateway = FakeGateway(MessageSinkRouteState.READY)
+        plugin.setPrivate("gateway", gateway)
+        plugin.setPrivate("running", true)
+
+        val result = plugin.sendCommandResult(
+            request = CommandResultSendRequest(
+                target = CommandTarget(
+                    address = TargetAddress.of("qq", TargetKind.GROUP, "bad"),
+                    senderId = "10001",
+                ),
+                chain = listOf(MessageBatch(listOf(MessageContent.Text("ok")))),
+                inReplyTo = "trace-1",
+            ),
+            routeId = "onebot:qq:42",
+        )
+
+        val failed = result as MessageSendResult.Failed
+        assertEquals("OneBot 目标 ID 必须是数字：bad", failed.reason)
+        assertFalse(failed.retryable)
+        assertEquals(0, gateway.sendGroupMessageCalls)
+    }
+
     private class FakeGateway(
         private val state: MessageSinkRouteState,
     ) : OneBotGateway {
+        var sendGroupMessageCalls: Int = 0
+
         override fun connect(onIncomingMessage: (OneBotIncomingMessage) -> Unit) {
         }
 
@@ -31,7 +66,10 @@ class OneBotGatewayPluginRouteStateTest {
 
         override suspend fun sendPrivateMessage(accountId: String, userId: Long, message: JsonArray): String? = null
 
-        override suspend fun sendGroupMessage(accountId: String, groupId: Long, message: JsonArray): String? = null
+        override suspend fun sendGroupMessage(accountId: String, groupId: Long, message: JsonArray): String? {
+            sendGroupMessageCalls += 1
+            return null
+        }
 
         override suspend fun sendPrivateForwardMessage(
             accountId: String,

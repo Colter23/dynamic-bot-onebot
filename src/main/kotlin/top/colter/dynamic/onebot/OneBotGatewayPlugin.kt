@@ -59,7 +59,7 @@ public class OneBotGatewayPlugin : AccountRoutedMessageSinkPlugin, ConfigurableP
         pluginId = context.pluginId
         commandPublisher = context.commandPublisher
         pluginScope = context.scope
-        config = context.configService.loadOrCreate(pluginId) { OneBotConfig() }
+        config = context.configService.loadOrCreate(pluginId, OneBotConfigForm.migrations) { OneBotConfig() }
         OneBotConfigForm.validate(config)
         OneBotMessageMapper.configure(config.localImageBase64MaxBytes)
         logger.info { "OneBot 配置已加载：pluginId=$pluginId，mode=${config.mode}" }
@@ -178,32 +178,32 @@ public class OneBotGatewayPlugin : AccountRoutedMessageSinkPlugin, ConfigurableP
         }
 
         val units = OneBotMessageMapper.toSendUnits(request.chain)
-        return when (request.target.chatType) {
-            TargetKind.GROUP -> sendUnits(
+        return when (val target = OneBotTarget.fromAddress(request.target.address)) {
+            is OneBotTarget.Group -> sendUnits(
                 routeId = routeId,
                 accountId = accountId,
                 units = units,
                 failureLabel = "OneBot 命令结果发送失败",
-                sendNormal = { payload -> gateway.sendGroupMessage(accountId, request.target.chatId.toLong(), payload) },
+                sendNormal = { payload -> gateway.sendGroupMessage(accountId, target.groupId, payload) },
                 sendForward = { payload ->
-                    gateway.sendGroupForwardMessage(accountId, request.target.chatId.toLong(), payload)
+                    gateway.sendGroupForwardMessage(accountId, target.groupId, payload)
                 },
             )
-            TargetKind.USER -> sendUnits(
+            is OneBotTarget.User -> sendUnits(
                 routeId = routeId,
                 accountId = accountId,
                 units = units,
                 failureLabel = "OneBot 命令结果发送失败",
-                sendNormal = { payload -> gateway.sendPrivateMessage(accountId, request.target.chatId.toLong(), payload) },
+                sendNormal = { payload -> gateway.sendPrivateMessage(accountId, target.userId, payload) },
                 sendForward = { payload ->
-                    gateway.sendPrivateForwardMessage(accountId, request.target.chatId.toLong(), payload)
+                    gateway.sendPrivateForwardMessage(accountId, target.userId, payload)
                 },
             )
-            else -> {
+            is OneBotTarget.Unsupported -> {
                 logger.warn {
-                    "跳过 OneBot 命令结果：traceId=${request.inReplyTo}，不支持目标=${request.target.chatType}:${request.target.chatId}"
+                    "跳过 OneBot 命令结果：traceId=${request.inReplyTo}，目标=${request.target.chatType}:${request.target.chatId}，原因=${target.reason}"
                 }
-                MessageSendResult.failed("OneBot 不支持目标类型：${request.target.chatType}", retryable = false)
+                MessageSendResult.failed(target.reason, retryable = false)
             }
         }
     }
