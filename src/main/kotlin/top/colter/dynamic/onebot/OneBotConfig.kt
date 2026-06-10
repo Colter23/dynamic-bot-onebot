@@ -15,7 +15,7 @@ public data class OneBotConfig(
     val reverseAccessToken: String = "",
     val reconnect: Boolean = true,
     val reconnectIntervalSeconds: Int = 5,
-    val localImageBase64MaxBytes: Long = 5L * 1024L * 1024L,
+    val mediaDeliveryProfileId: String = "",
 )
 
 public data class OneBotForwardConnectionConfig(
@@ -23,6 +23,7 @@ public data class OneBotForwardConnectionConfig(
     val accessToken: String = "",
     val name: String = "",
     val enabled: Boolean = true,
+    val mediaDeliveryProfileId: String = "",
 )
 
 public enum class OneBotConnectionMode {
@@ -37,6 +38,12 @@ public object OneBotConfigForm {
             description = "删除旧版 SDK 最大重连次数配置，统一由插件按重连间隔长期重建客户端",
         ) {
             remove("reconnectMaxTimes")
+        },
+        ConfigMigration(
+            id = "onebot-media-delivery-profile",
+            description = "删除 OneBot 小图 Base64 阈值配置，改为引用主配置的媒体交付 profile",
+        ) {
+            remove("localImageBase64MaxBytes")
         },
     )
 
@@ -73,7 +80,7 @@ public object OneBotConfigForm {
                     "example" to """
                         [
                           {"name":"本机 NapCat","url":"ws://127.0.0.1:6700","accessToken":"","enabled":true},
-                          {"name":"备用连接","url":"ws://127.0.0.1:6702","accessToken":"token","enabled":true}
+                          {"name":"备用连接","url":"ws://127.0.0.1:6702","accessToken":"token","enabled":true,"mediaDeliveryProfileId":"remote"}
                         ]
                     """.trimIndent(),
                 ),
@@ -113,13 +120,11 @@ public object OneBotConfigForm {
                 visibleWhen = reverseWsOnly(),
             ),
             ConfigFieldSpec(
-                path = "localImageBase64MaxBytes",
-                label = "小图转 Base64 上限（字节）",
-                type = ConfigFieldType.NUMBER,
+                path = "mediaDeliveryProfileId",
+                label = "媒体交付 profile",
+                type = ConfigFieldType.TEXT,
                 section = "消息",
-                description = "小于这个大小的本地图片会转成 Base64 发送。\n较大的图片会使用 file URI；设为 0 表示全部使用 file URI。",
-                min = 0,
-                numberKind = ConfigNumberKind.INTEGER,
+                description = "默认使用的主配置媒体交付 profile ID。\n正向连接也可以在 connections 里单独设置 mediaDeliveryProfileId；留空时使用主配置默认 profile。",
             ),
             ConfigFieldSpec(
                 path = "reconnect",
@@ -159,7 +164,6 @@ public object OneBotConfigForm {
     public fun validate(config: OneBotConfig) {
         require(config.port in 1..65_535) { "反向 WebSocket 端口必须在 1 到 65535 之间" }
         require(config.reconnectIntervalSeconds >= 1) { "重连间隔不能小于 1 秒" }
-        require(config.localImageBase64MaxBytes >= 0) { "本地图片 Base64 阈值不能为负数" }
 
         when (config.mode) {
             OneBotConnectionMode.FORWARD_WS -> {
@@ -189,6 +193,13 @@ private fun String.isLocalBindAddress(): Boolean {
 
 internal fun OneBotConfig.enabledConnections(): List<OneBotForwardConnectionConfig> {
     return connections
-        .map { it.copy(url = it.url.trim(), accessToken = it.accessToken.trim(), name = it.name.trim()) }
+        .map {
+            it.copy(
+                url = it.url.trim(),
+                accessToken = it.accessToken.trim(),
+                name = it.name.trim(),
+                mediaDeliveryProfileId = it.mediaDeliveryProfileId.trim(),
+            )
+        }
         .filter { it.enabled }
 }

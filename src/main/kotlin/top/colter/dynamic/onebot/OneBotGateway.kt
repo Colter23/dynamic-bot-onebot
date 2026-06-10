@@ -36,6 +36,7 @@ public data class OneBotRuntimeAccount(
     val accountId: String,
     val name: String = "QQ机器人 $accountId",
     val state: MessageSinkRouteState = MessageSinkRouteState.READY,
+    val mediaDeliveryProfileId: String = "",
 )
 
 public interface OneBotGateway {

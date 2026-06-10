@@ -30,6 +30,8 @@ internal class ForwardWsOneBotGateway(
                 url = connection.url,
                 accessToken = connection.accessToken,
                 name = connection.name,
+                mediaDeliveryProfileId = connection.mediaDeliveryProfileId
+                    .ifBlank { config.mediaDeliveryProfileId.trim() },
             )
             runtimeConnection.client = runtimeConnection.openClient(onIncomingMessage)
             connections += runtimeConnection
@@ -168,6 +170,7 @@ internal class ForwardWsOneBotGateway(
                 accountId = accountId,
                 name = info.nickname?.takeIf { it.isNotBlank() } ?: "QQ机器人 $accountId",
                 state = MessageSinkRouteState.READY,
+                mediaDeliveryProfileId = mediaDeliveryProfileId,
             )
         }.onSuccess {
             val previous = account
@@ -256,8 +259,12 @@ internal class ForwardWsOneBotGateway(
         }
 
         val previous = account
-        account = (previous ?: OneBotRuntimeAccount(accountId = accountId)).copy(
+        account = (previous ?: OneBotRuntimeAccount(
+            accountId = accountId,
+            mediaDeliveryProfileId = mediaDeliveryProfileId,
+        )).copy(
             state = MessageSinkRouteState.UNAVAILABLE,
+            mediaDeliveryProfileId = mediaDeliveryProfileId,
         )
         if (previous?.state != MessageSinkRouteState.UNAVAILABLE) {
             if (error == null) {
@@ -325,6 +332,7 @@ internal class ForwardWsOneBotGateway(
         val url: String,
         val accessToken: String,
         val name: String,
+        val mediaDeliveryProfileId: String,
         val rebuildLock: Any = Any(),
         @Volatile
         var client: OneBotClient? = null,

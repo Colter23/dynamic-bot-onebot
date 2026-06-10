@@ -15,7 +15,7 @@ class OneBotConfigFormTest {
         val reconnectField = OneBotConfigForm.spec.fields.single { it.path == "reconnect" }
         val reconnectIntervalField = OneBotConfigForm.spec.fields.single { it.path == "reconnectIntervalSeconds" }
         val hostField = OneBotConfigForm.spec.fields.single { it.path == "host" }
-        val localImageBase64MaxBytesField = OneBotConfigForm.spec.fields.single { it.path == "localImageBase64MaxBytes" }
+        val mediaDeliveryProfileField = OneBotConfigForm.spec.fields.single { it.path == "mediaDeliveryProfileId" }
 
         assertEquals(ConfigFieldType.JSON, connectionsField.type)
         assertEquals("ONEBOT_CONNECTION_TABLE", connectionsField.component)
@@ -30,8 +30,8 @@ class OneBotConfigFormTest {
         assertTrue(reconnectField.description.contains("手动重启插件"))
         assertEquals(1, reconnectIntervalField.min)
         assertEquals(listOf(OneBotConnectionMode.FORWARD_WS.name), reconnectIntervalField.visibleWhen?.values)
-        assertEquals(0, localImageBase64MaxBytesField.min)
-        assertTrue(localImageBase64MaxBytesField.description.contains("较大的图片会使用 file URI"))
+        assertEquals(ConfigFieldType.TEXT, mediaDeliveryProfileField.type)
+        assertTrue(mediaDeliveryProfileField.description.contains("主配置媒体交付 profile"))
     }
 
     @Test
@@ -43,7 +43,7 @@ class OneBotConfigFormTest {
         assertEquals(listOf(""), config.connections.map { it.name })
         assertTrue(config.reconnect)
         assertEquals(5, config.reconnectIntervalSeconds)
-        assertEquals(5L * 1024L * 1024L, config.localImageBase64MaxBytes)
+        assertEquals("", config.mediaDeliveryProfileId)
     }
 
     @Test
@@ -108,21 +108,17 @@ class OneBotConfigFormTest {
                 reverseAccessToken = "token",
             ),
         )
-
-        val negativeImageThreshold = assertFailsWith<IllegalArgumentException> {
-            OneBotConfigForm.validate(OneBotConfig(localImageBase64MaxBytes = -1))
-        }
-        assertEquals("本地图片 Base64 阈值不能为负数", negativeImageThreshold.message)
     }
 
     @Test
-    fun `enabled connections should trim marker url and token`() {
+    fun `enabled connections should trim marker url token and media profile`() {
         val config = OneBotConfig(
             connections = listOf(
                 OneBotForwardConnectionConfig(
                     url = "  ws://127.0.0.1:6701  ",
                     accessToken = " token ",
                     name = " 主连接 ",
+                    mediaDeliveryProfileId = " local ",
                 ),
             ),
         )
@@ -133,6 +129,7 @@ class OneBotConfigFormTest {
                     url = "ws://127.0.0.1:6701",
                     accessToken = "token",
                     name = "主连接",
+                    mediaDeliveryProfileId = "local",
                 ),
             ),
             config.enabledConnections(),

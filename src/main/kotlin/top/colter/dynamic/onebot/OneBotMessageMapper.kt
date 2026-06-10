@@ -5,13 +5,8 @@ import cn.evole.onebot.sdk.enums.MsgType
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
 import java.net.URI
-import java.net.URLDecoder
-import java.nio.charset.StandardCharsets
-import java.nio.file.Files
 import java.nio.file.InvalidPathException
-import java.nio.file.Path
 import java.nio.file.Paths
-import java.util.Base64
 import top.colter.dynamic.core.data.Message
 import top.colter.dynamic.core.data.MessageBatch
 import top.colter.dynamic.core.data.MessageContent
@@ -22,13 +17,6 @@ public sealed interface OneBotSendUnit {
 }
 
 public object OneBotMessageMapper {
-    @Volatile
-    private var localImageBase64MaxBytes: Long = DEFAULT_LOCAL_IMAGE_BASE64_MAX_BYTES
-
-    public fun configure(localImageBase64MaxBytes: Long = DEFAULT_LOCAL_IMAGE_BASE64_MAX_BYTES) {
-        this.localImageBase64MaxBytes = localImageBase64MaxBytes.coerceAtLeast(0)
-    }
-
     public fun toSendUnits(message: Message): List<OneBotSendUnit> {
         return toSendUnits(message.batches)
     }
@@ -197,11 +185,7 @@ public object OneBotMessageMapper {
     }
 
     private fun String.toOneBotImageFile(): String {
-        return localReadablePath()
-            ?.takeIf { Files.isRegularFile(it) }
-            ?.takeIf { path -> Files.size(path) <= localImageBase64MaxBytes }
-            ?.let { path -> "base64://${Base64.getEncoder().encodeToString(Files.readAllBytes(path))}" }
-            ?: toOneBotFileUri()
+        return toOneBotFileUri()
     }
 
     private fun String.toOneBotFileUri(): String {
@@ -224,33 +208,11 @@ public object OneBotMessageMapper {
         }
     }
 
-    private fun String.localReadablePath(): Path? {
-        val value = trim()
-        if (value.isBlank() || isRemoteUri()) return null
-        return try {
-            val uri = runCatching { URI(value) }.getOrNull()
-            when {
-                uri != null && uri.scheme.equals("file", ignoreCase = true) -> Paths.get(uri)
-                uri != null && uri.scheme != null -> null
-                else -> Paths.get(URLDecoder.decode(value, StandardCharsets.UTF_8))
-            }?.toAbsolutePath()?.normalize()
-        } catch (_: Exception) {
-            null
-        }
-    }
-
-    private fun String.isRemoteUri(): Boolean {
-        return startsWith("http://", ignoreCase = true) ||
-            startsWith("https://", ignoreCase = true) ||
-            startsWith("base64://", ignoreCase = true)
-    }
-
     private fun String.hasUriScheme(): Boolean {
         return URI_SCHEME.matches(takeWhile { it != '/' && it != '\\' })
     }
 
     private const val EMPTY_MESSAGE_TEXT: String = "（空消息）"
-    private const val DEFAULT_LOCAL_IMAGE_BASE64_MAX_BYTES: Long = 5L * 1024L * 1024L
     private val WINDOWS_ABSOLUTE_PATH: Regex = Regex("""^([a-zA-Z]):[\\/](.+)$""")
     private val URI_SCHEME: Regex = Regex("""^[a-zA-Z][a-zA-Z0-9+.-]*:.*$""")
 }

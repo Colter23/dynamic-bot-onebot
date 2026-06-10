@@ -51,6 +51,8 @@ public class OneBotGatewayPlugin : AccountRoutedMessageSinkPlugin, ConfigurableP
 
     override val transportId: String = "onebot"
     override val transportName: String = "OneBot"
+    override val mediaDeliveryProfileId: String
+        get() = config.mediaDeliveryProfileId
     override val supportedMessageFeatures: Set<MessageSinkFeature> = setOf(MessageSinkFeature.MERGED_FORWARD)
     override val supportedTargetPlatforms: Set<PlatformId> = setOf(QQ_PLATFORM_ID)
     override val supportedTargetKinds: Set<TargetKind> = setOf(TargetKind.GROUP, TargetKind.USER)
@@ -61,7 +63,6 @@ public class OneBotGatewayPlugin : AccountRoutedMessageSinkPlugin, ConfigurableP
         pluginScope = context.scope
         config = context.configService.loadOrCreate(pluginId, OneBotConfigForm.migrations) { OneBotConfig() }
         OneBotConfigForm.validate(config)
-        OneBotMessageMapper.configure(config.localImageBase64MaxBytes)
         logger.info { "OneBot 配置已加载：pluginId=$pluginId，mode=${config.mode}" }
     }
 
@@ -100,7 +101,6 @@ public class OneBotGatewayPlugin : AccountRoutedMessageSinkPlugin, ConfigurableP
         OneBotConfigForm.validate(next)
         val changed = next != config
         config = next
-        OneBotMessageMapper.configure(config.localImageBase64MaxBytes)
         return ConfigApplyResult(
             changed = changed,
             restartRequired = changed,
@@ -362,6 +362,7 @@ public class OneBotGatewayPlugin : AccountRoutedMessageSinkPlugin, ConfigurableP
         accountAvatar = oneBotTargetAvatar(TargetKind.USER, accountId),
         enabled = true,
         state = state,
+        mediaDeliveryProfileId = mediaDeliveryProfileId,
     )
 
     private fun routeId(accountId: String): String = "$transportId:${QQ_PLATFORM_ID.value}:$accountId"

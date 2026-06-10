@@ -67,6 +67,7 @@ internal class ReverseWsOneBotGateway(
                 knownAccounts[accountId] = OneBotRuntimeAccount(
                     accountId = accountId,
                     state = MessageSinkRouteState.READY,
+                    mediaDeliveryProfileId = config.mediaDeliveryProfileId.trim(),
                 )
 
                 logger.info { "OneBot 反向连接已建立：accountId=$accountId，remote=${conn.remoteSocketAddress}" }
@@ -88,6 +89,7 @@ internal class ReverseWsOneBotGateway(
                     knownAccounts.compute(accountId) { _, previous ->
                         (previous ?: OneBotRuntimeAccount(accountId = accountId)).copy(
                             state = MessageSinkRouteState.UNAVAILABLE,
+                            mediaDeliveryProfileId = config.mediaDeliveryProfileId.trim(),
                         )
                     }
                 }
