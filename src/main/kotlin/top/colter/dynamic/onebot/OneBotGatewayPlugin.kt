@@ -21,6 +21,13 @@ import top.colter.dynamic.core.plugin.MessageRecallRequest
 import top.colter.dynamic.core.plugin.MessageRecallResult
 import top.colter.dynamic.core.plugin.MessageSendResult
 import top.colter.dynamic.core.plugin.MessageSinkFeature
+import top.colter.dynamic.core.plugin.MessageSinkMediaDeliveryAdvice
+import top.colter.dynamic.core.plugin.MessageSinkMediaDeliveryAdviceRequest
+import top.colter.dynamic.core.plugin.MessageSinkMediaDeliveryAdvisor
+import top.colter.dynamic.core.plugin.MessageSinkMediaDeliveryConfidence
+import top.colter.dynamic.core.plugin.MessageSinkMediaDeliveryMethod
+import top.colter.dynamic.core.plugin.MessageSinkMediaDeliveryProbeRequest
+import top.colter.dynamic.core.plugin.MessageSinkMediaDeliveryProbeResult
 import top.colter.dynamic.core.plugin.MessageSinkRoute
 import top.colter.dynamic.core.plugin.MessageSinkRouteState
 import top.colter.dynamic.core.plugin.MessageTargetCandidate
@@ -31,7 +38,10 @@ private val logger = loggerFor<OneBotGatewayPlugin>()
 private val QQ_PLATFORM_ID = PlatformId.of("qq")
 private const val SINK_MESSAGE_ID_SEPARATOR = ","
 
-public class OneBotGatewayPlugin : AccountRoutedMessageSinkPlugin, ConfigurablePlugin<OneBotConfig> {
+public class OneBotGatewayPlugin :
+    AccountRoutedMessageSinkPlugin,
+    MessageSinkMediaDeliveryAdvisor,
+    ConfigurablePlugin<OneBotConfig> {
 
     private var pluginId: String = ONEBOT_PLUGIN_ID
     private var config: OneBotConfig = OneBotConfig()
@@ -273,6 +283,58 @@ public class OneBotGatewayPlugin : AccountRoutedMessageSinkPlugin, ConfigurableP
             )
     }
 
+    override suspend fun adviseMediaDelivery(
+        request: MessageSinkMediaDeliveryAdviceRequest,
+    ): MessageSinkMediaDeliveryAdvice {
+        if (!running) return MessageSinkMediaDeliveryAdvice()
+        val accountId = request.accountIdFromRequest() ?: return MessageSinkMediaDeliveryAdvice()
+        val info = runCatching { gateway.implementationInfo(accountId) }.getOrDefault(OneBotImplementationInfo())
+        val hints = runCatching {
+            gateway.connectionHints(
+                accountId = accountId,
+                webAdminHost = request.webAdminHost,
+                webAdminPort = request.webAdminPort,
+            )
+        }.getOrDefault(OneBotConnectionHints())
+        val localConfidence = when (info.kind) {
+            OneBotImplementationKind.NAPCAT -> MessageSinkMediaDeliveryConfidence.UNKNOWN
+            OneBotImplementationKind.LLONEBOT -> if (hints.sameHostLikely) {
+                MessageSinkMediaDeliveryConfidence.LIKELY
+            } else {
+                MessageSinkMediaDeliveryConfidence.UNKNOWN
+            }
+            OneBotImplementationKind.UNKNOWN -> MessageSinkMediaDeliveryConfidence.UNKNOWN
+        }
+        return MessageSinkMediaDeliveryAdvice(
+            clientName = info.appName,
+            clientVersion = info.appVersion,
+            localFileConfidence = localConfidence,
+            signedUrlBaseCandidates = if (request.webAdminEnabled) hints.signedUrlBaseCandidates else emptyList(),
+        )
+    }
+
+    override suspend fun probeMediaDelivery(
+        request: MessageSinkMediaDeliveryProbeRequest,
+    ): MessageSinkMediaDeliveryProbeResult {
+        if (!running) return MessageSinkMediaDeliveryProbeResult.unknown("OneBot 未运行")
+        val accountId = request.accountIdFromRequest() ?: return MessageSinkMediaDeliveryProbeResult.unknown("缺少 OneBot 账号")
+        return when (request.method) {
+            MessageSinkMediaDeliveryMethod.SIGNED_URL -> probeDownload(accountId, request.uri)
+            MessageSinkMediaDeliveryMethod.LOCAL_FILE -> {
+                val info = runCatching { gateway.implementationInfo(accountId) }.getOrDefault(OneBotImplementationInfo())
+                when (info.kind) {
+                    OneBotImplementationKind.NAPCAT -> probeDownload(accountId, request.uri)
+                    OneBotImplementationKind.LLONEBOT -> MessageSinkMediaDeliveryProbeResult.unknown(
+                        "LLOneBot 无可靠的无副作用本地文件探测接口",
+                    )
+                    OneBotImplementationKind.UNKNOWN -> MessageSinkMediaDeliveryProbeResult.unknown(
+                        "未知 OneBot 客户端，跳过本地文件探测",
+                    )
+                }
+            }
+        }
+    }
+
     private fun encodeSinkMessageIds(ids: List<String>): String? {
         val cleaned = ids.mapNotNull { it.trim().takeIf(String::isNotBlank) }
         return cleaned.takeIf { it.isNotEmpty() }?.joinToString(SINK_MESSAGE_ID_SEPARATOR)
@@ -372,6 +434,25 @@ public class OneBotGatewayPlugin : AccountRoutedMessageSinkPlugin, ConfigurableP
         return routeId.removePrefix(prefix)
             .takeIf { it != routeId }
             ?.takeIf { it.isNotBlank() }
+    }
+
+    private fun MessageSinkMediaDeliveryAdviceRequest.accountIdFromRequest(): String? {
+        return routeId?.let(::accountIdFromRoute)
+            ?: accountId?.trim()?.takeIf { it.isNotBlank() }
+    }
+
+    private fun MessageSinkMediaDeliveryProbeRequest.accountIdFromRequest(): String? {
+        return routeId?.let(::accountIdFromRoute)
+            ?: accountId?.trim()?.takeIf { it.isNotBlank() }
+    }
+
+    private suspend fun probeDownload(accountId: String, uri: String): MessageSinkMediaDeliveryProbeResult {
+        val result = gateway.probeDownload(accountId, uri)
+        return if (result.available) {
+            MessageSinkMediaDeliveryProbeResult.available(result.reason)
+        } else {
+            MessageSinkMediaDeliveryProbeResult.unavailable(result.reason)
+        }
     }
 
     private suspend fun isAccountReady(accountId: String): Boolean {

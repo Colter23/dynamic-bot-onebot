@@ -26,6 +26,7 @@ internal class ReverseWsOneBotGateway(
 
     private val activeBots = ConcurrentHashMap<String, Bot>()
     private val activeChannels = ConcurrentHashMap<String, WebSocket>()
+    private val activeRemoteAddresses = ConcurrentHashMap<String, InetSocketAddress>()
     private val knownAccounts = ConcurrentHashMap<String, OneBotRuntimeAccount>()
 
     @Volatile
@@ -64,6 +65,7 @@ internal class ReverseWsOneBotGateway(
                     ?.takeIf { previous -> previous != conn && previous.isOpen }
                     ?.close(1000, "replaced_by_new_reverse_connection")
                 activeBots[accountId] = Bot(conn, runtimeClient.actionFactory)
+                activeRemoteAddresses[accountId] = conn.remoteSocketAddress
                 knownAccounts[accountId] = OneBotRuntimeAccount(
                     accountId = accountId,
                     state = MessageSinkRouteState.READY,
@@ -86,6 +88,7 @@ internal class ReverseWsOneBotGateway(
                 if (accountId != null) {
                     activeChannels.remove(accountId, conn)
                     activeBots.remove(accountId)
+                    activeRemoteAddresses.remove(accountId)
                     knownAccounts.compute(accountId) { _, previous ->
                         (previous ?: OneBotRuntimeAccount(accountId = accountId)).copy(
                             state = MessageSinkRouteState.UNAVAILABLE,
@@ -111,6 +114,49 @@ internal class ReverseWsOneBotGateway(
     override suspend fun availableAccounts(): List<OneBotRuntimeAccount> {
         return knownAccounts.values
             .sortedBy { it.accountId }
+    }
+
+    override suspend fun implementationInfo(accountId: String): OneBotImplementationInfo {
+        return withContext(Dispatchers.IO) {
+            val info = requireBot(accountId).getVersionInfo().requireDataOk("get_version_info")
+            OneBotImplementationInfo(
+                appName = info.appName.orEmpty(),
+                appVersion = info.appVersion.orEmpty().ifBlank { info.version.orEmpty() },
+                protocolVersion = info.protocolVersion.orEmpty(),
+            )
+        }
+    }
+
+    override suspend fun connectionHints(
+        accountId: String,
+        webAdminHost: String,
+        webAdminPort: Int,
+    ): OneBotConnectionHints {
+        return withContext(Dispatchers.IO) {
+            val sameHostLikely = oneBotSameHostLikely(activeRemoteAddresses[accountId])
+            OneBotConnectionHints(
+                sameHostLikely = sameHostLikely,
+                signedUrlBaseCandidates = oneBotSignedUrlBaseCandidates(
+                    webAdminHost = webAdminHost,
+                    webAdminPort = webAdminPort,
+                    sameHostLikely = sameHostLikely,
+                ),
+            )
+        }
+    }
+
+    override suspend fun probeDownload(accountId: String, uri: String): OneBotDownloadProbeResult {
+        return withContext(Dispatchers.IO) {
+            runCatching {
+                val result = requireBot(accountId).downloadFile(uri).requireDataOk("download_file")
+                OneBotDownloadProbeResult(
+                    available = !result.file.isNullOrBlank(),
+                    reason = result.file.orEmpty(),
+                )
+            }.getOrElse {
+                OneBotDownloadProbeResult(available = false, reason = it.message.orEmpty())
+            }
+        }
     }
 
     override suspend fun sendPrivateMessage(accountId: String, userId: Long, message: JsonArray): String? {
@@ -193,6 +239,7 @@ internal class ReverseWsOneBotGateway(
                 channel.close(1000, "shutdown")
             }
             activeChannels.clear()
+            activeRemoteAddresses.clear()
             knownAccounts.replaceAll { _, account -> account.copy(state = MessageSinkRouteState.UNAVAILABLE) }
             runCatching {
                 server?.stop(1000, "shutdown")

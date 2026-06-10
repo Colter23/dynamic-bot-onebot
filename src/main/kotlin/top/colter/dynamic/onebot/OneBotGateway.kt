@@ -39,9 +39,44 @@ public data class OneBotRuntimeAccount(
     val mediaDeliveryProfileId: String = "",
 )
 
+public data class OneBotImplementationInfo(
+    val appName: String = "",
+    val appVersion: String = "",
+    val protocolVersion: String = "",
+) {
+    public val kind: OneBotImplementationKind
+        get() = when {
+            appName.contains("napcat", ignoreCase = true) -> OneBotImplementationKind.NAPCAT
+            appName.contains("llonebot", ignoreCase = true) -> OneBotImplementationKind.LLONEBOT
+            appName.contains("llbot", ignoreCase = true) -> OneBotImplementationKind.LLONEBOT
+            else -> OneBotImplementationKind.UNKNOWN
+        }
+}
+
+public enum class OneBotImplementationKind {
+    NAPCAT,
+    LLONEBOT,
+    UNKNOWN,
+}
+
+public data class OneBotConnectionHints(
+    val sameHostLikely: Boolean = false,
+    val signedUrlBaseCandidates: List<String> = emptyList(),
+)
+
+public data class OneBotDownloadProbeResult(
+    val available: Boolean,
+    val reason: String = "",
+)
+
 public interface OneBotGateway {
     public fun connect(onIncomingMessage: (OneBotIncomingMessage) -> Unit)
     public suspend fun availableAccounts(): List<OneBotRuntimeAccount>
+    public suspend fun implementationInfo(accountId: String): OneBotImplementationInfo = OneBotImplementationInfo()
+    public suspend fun connectionHints(accountId: String, webAdminHost: String, webAdminPort: Int): OneBotConnectionHints =
+        OneBotConnectionHints()
+    public suspend fun probeDownload(accountId: String, uri: String): OneBotDownloadProbeResult =
+        OneBotDownloadProbeResult(available = false, reason = "OneBot 网关不支持媒体探测")
     public suspend fun sendPrivateMessage(accountId: String, userId: Long, message: JsonArray): String?
     public suspend fun sendGroupMessage(accountId: String, groupId: Long, message: JsonArray): String?
     public suspend fun sendPrivateForwardMessage(
@@ -65,6 +100,17 @@ public class NoopOneBotGateway : OneBotGateway {
     }
 
     override suspend fun availableAccounts(): List<OneBotRuntimeAccount> = emptyList()
+
+    override suspend fun implementationInfo(accountId: String): OneBotImplementationInfo = OneBotImplementationInfo()
+
+    override suspend fun connectionHints(
+        accountId: String,
+        webAdminHost: String,
+        webAdminPort: Int,
+    ): OneBotConnectionHints = OneBotConnectionHints()
+
+    override suspend fun probeDownload(accountId: String, uri: String): OneBotDownloadProbeResult =
+        OneBotDownloadProbeResult(available = false, reason = "OneBot 未运行")
 
     override suspend fun sendPrivateMessage(accountId: String, userId: Long, message: JsonArray): String? = null
 

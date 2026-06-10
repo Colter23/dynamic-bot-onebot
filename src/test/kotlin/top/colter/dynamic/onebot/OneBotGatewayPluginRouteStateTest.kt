@@ -12,6 +12,11 @@ import top.colter.dynamic.core.data.TargetAddress
 import top.colter.dynamic.core.data.TargetKind
 import top.colter.dynamic.core.plugin.CommandResultSendRequest
 import top.colter.dynamic.core.plugin.MessageSendResult
+import top.colter.dynamic.core.plugin.MessageSinkMediaDeliveryAdviceRequest
+import top.colter.dynamic.core.plugin.MessageSinkMediaDeliveryConfidence
+import top.colter.dynamic.core.plugin.MessageSinkMediaDeliveryMethod
+import top.colter.dynamic.core.plugin.MessageSinkMediaDeliveryProbeRequest
+import top.colter.dynamic.core.plugin.MessageSinkMediaDeliveryProbeStatus
 import top.colter.dynamic.core.plugin.MessageSinkRouteState
 
 class OneBotGatewayPluginRouteStateTest {
@@ -52,16 +57,132 @@ class OneBotGatewayPluginRouteStateTest {
         assertEquals(0, gateway.sendGroupMessageCalls)
     }
 
+    @Test
+    fun `napcat local probe should use download_file`() = runBlocking {
+        val plugin = OneBotGatewayPlugin()
+        val gateway = FakeGateway(
+            state = MessageSinkRouteState.READY,
+            implementationInfo = OneBotImplementationInfo(appName = "NapCatQQ", appVersion = "4.8.0"),
+            downloadProbeResult = OneBotDownloadProbeResult(available = true, reason = "ok"),
+        )
+        plugin.setPrivate("gateway", gateway)
+        plugin.setPrivate("running", true)
+
+        val advice = plugin.adviseMediaDelivery(adviceRequest())
+        val probe = plugin.probeMediaDelivery(
+            MessageSinkMediaDeliveryProbeRequest(
+                routeId = "onebot:qq:42",
+                method = MessageSinkMediaDeliveryMethod.LOCAL_FILE,
+                uri = "file:///tmp/probe.png",
+            ),
+        )
+
+        assertEquals(MessageSinkMediaDeliveryConfidence.UNKNOWN, advice.localFileConfidence)
+        assertEquals(MessageSinkMediaDeliveryProbeStatus.AVAILABLE, probe.status)
+        assertEquals(listOf("42:file:///tmp/probe.png"), gateway.downloadProbeCalls)
+    }
+
+    @Test
+    fun `llonebot same host should allow likely local file without probe side effect`() = runBlocking {
+        val plugin = OneBotGatewayPlugin()
+        val gateway = FakeGateway(
+            state = MessageSinkRouteState.READY,
+            implementationInfo = OneBotImplementationInfo(appName = "LLOneBot", appVersion = "3.33.0"),
+            connectionHints = OneBotConnectionHints(sameHostLikely = true),
+        )
+        plugin.setPrivate("gateway", gateway)
+        plugin.setPrivate("running", true)
+
+        val advice = plugin.adviseMediaDelivery(adviceRequest())
+        val probe = plugin.probeMediaDelivery(
+            MessageSinkMediaDeliveryProbeRequest(
+                routeId = "onebot:qq:42",
+                method = MessageSinkMediaDeliveryMethod.LOCAL_FILE,
+                uri = "file:///tmp/probe.png",
+            ),
+        )
+
+        assertEquals(MessageSinkMediaDeliveryConfidence.LIKELY, advice.localFileConfidence)
+        assertEquals(MessageSinkMediaDeliveryProbeStatus.UNKNOWN, probe.status)
+        assertEquals(emptyList(), gateway.downloadProbeCalls)
+    }
+
+    @Test
+    fun `llonebot remote host should not assume local file access`() = runBlocking {
+        val plugin = OneBotGatewayPlugin()
+        val gateway = FakeGateway(
+            state = MessageSinkRouteState.READY,
+            implementationInfo = OneBotImplementationInfo(appName = "LLOneBot"),
+            connectionHints = OneBotConnectionHints(sameHostLikely = false),
+        )
+        plugin.setPrivate("gateway", gateway)
+        plugin.setPrivate("running", true)
+
+        val advice = plugin.adviseMediaDelivery(adviceRequest())
+
+        assertEquals(MessageSinkMediaDeliveryConfidence.UNKNOWN, advice.localFileConfidence)
+    }
+
+    @Test
+    fun `signed url probe should use download_file for any client`() = runBlocking {
+        val plugin = OneBotGatewayPlugin()
+        val gateway = FakeGateway(
+            state = MessageSinkRouteState.READY,
+            implementationInfo = OneBotImplementationInfo(appName = "unknown"),
+            downloadProbeResult = OneBotDownloadProbeResult(available = false, reason = "connect timeout"),
+        )
+        plugin.setPrivate("gateway", gateway)
+        plugin.setPrivate("running", true)
+
+        val probe = plugin.probeMediaDelivery(
+            MessageSinkMediaDeliveryProbeRequest(
+                routeId = "onebot:qq:42",
+                method = MessageSinkMediaDeliveryMethod.SIGNED_URL,
+                uri = "http://127.0.0.1:2233/media/outbound-probe",
+            ),
+        )
+
+        assertEquals(MessageSinkMediaDeliveryProbeStatus.UNAVAILABLE, probe.status)
+        assertEquals("connect timeout", probe.reason)
+        assertEquals(listOf("42:http://127.0.0.1:2233/media/outbound-probe"), gateway.downloadProbeCalls)
+    }
+
+    private fun adviceRequest(): MessageSinkMediaDeliveryAdviceRequest {
+        return MessageSinkMediaDeliveryAdviceRequest(
+            routeId = "onebot:qq:42",
+            webAdminEnabled = true,
+            webAdminHost = "127.0.0.1",
+            webAdminPort = 2233,
+        )
+    }
+
     private class FakeGateway(
         private val state: MessageSinkRouteState,
+        private val implementationInfo: OneBotImplementationInfo = OneBotImplementationInfo(),
+        private val connectionHints: OneBotConnectionHints = OneBotConnectionHints(),
+        private val downloadProbeResult: OneBotDownloadProbeResult = OneBotDownloadProbeResult(available = false),
     ) : OneBotGateway {
         var sendGroupMessageCalls: Int = 0
+        val downloadProbeCalls: MutableList<String> = mutableListOf()
 
         override fun connect(onIncomingMessage: (OneBotIncomingMessage) -> Unit) {
         }
 
         override suspend fun availableAccounts(): List<OneBotRuntimeAccount> {
             return listOf(OneBotRuntimeAccount(accountId = "42", name = "测试 Bot", state = state))
+        }
+
+        override suspend fun implementationInfo(accountId: String): OneBotImplementationInfo = implementationInfo
+
+        override suspend fun connectionHints(
+            accountId: String,
+            webAdminHost: String,
+            webAdminPort: Int,
+        ): OneBotConnectionHints = connectionHints
+
+        override suspend fun probeDownload(accountId: String, uri: String): OneBotDownloadProbeResult {
+            downloadProbeCalls += "$accountId:$uri"
+            return downloadProbeResult
         }
 
         override suspend fun sendPrivateMessage(accountId: String, userId: Long, message: JsonArray): String? = null

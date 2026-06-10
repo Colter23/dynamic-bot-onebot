@@ -45,6 +45,50 @@ internal class ForwardWsOneBotGateway(
             .sortedBy { it.accountId }
     }
 
+    override suspend fun implementationInfo(accountId: String): OneBotImplementationInfo {
+        return withContext(Dispatchers.IO) {
+            val info = requireBot(accountId).getVersionInfo().requireDataOk("get_version_info")
+            OneBotImplementationInfo(
+                appName = info.appName.orEmpty(),
+                appVersion = info.appVersion.orEmpty().ifBlank { info.version.orEmpty() },
+                protocolVersion = info.protocolVersion.orEmpty(),
+            )
+        }
+    }
+
+    override suspend fun connectionHints(
+        accountId: String,
+        webAdminHost: String,
+        webAdminPort: Int,
+    ): OneBotConnectionHints {
+        return withContext(Dispatchers.IO) {
+            val connection = connections.firstOrNull { it.knownAccountId() == accountId }
+            val sameHostLikely = oneBotSameHostLikely(oneBotWebSocketHost(connection?.url.orEmpty()))
+            OneBotConnectionHints(
+                sameHostLikely = sameHostLikely,
+                signedUrlBaseCandidates = oneBotSignedUrlBaseCandidates(
+                    webAdminHost = webAdminHost,
+                    webAdminPort = webAdminPort,
+                    sameHostLikely = sameHostLikely,
+                ),
+            )
+        }
+    }
+
+    override suspend fun probeDownload(accountId: String, uri: String): OneBotDownloadProbeResult {
+        return withContext(Dispatchers.IO) {
+            runCatching {
+                val result = requireBot(accountId).downloadFile(uri).requireDataOk("download_file")
+                OneBotDownloadProbeResult(
+                    available = !result.file.isNullOrBlank(),
+                    reason = result.file.orEmpty(),
+                )
+            }.getOrElse {
+                OneBotDownloadProbeResult(available = false, reason = it.message.orEmpty())
+            }
+        }
+    }
+
     override suspend fun sendPrivateMessage(accountId: String, userId: Long, message: JsonArray): String? {
         return withContext(Dispatchers.IO) {
             val action = requireBot(accountId).sendPrivateMsg(userId, message, false)
