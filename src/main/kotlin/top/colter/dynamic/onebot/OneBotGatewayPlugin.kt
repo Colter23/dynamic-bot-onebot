@@ -36,7 +36,7 @@ import top.colter.dynamic.core.tools.loggerFor
 
 private val logger = loggerFor<OneBotGatewayPlugin>()
 private val QQ_PLATFORM_ID = PlatformId.of("qq")
-private const val SINK_MESSAGE_ID_SEPARATOR = ","
+private const val SINK_MESSAGE_ID_SEPARATOR = ""  // ASCII Unit Separator，不可能出现在正常消息 ID 中
 
 public class OneBotGatewayPlugin :
     AccountRoutedMessageSinkPlugin,
