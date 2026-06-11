@@ -99,9 +99,9 @@ public class OneBotGatewayPlugin :
     override suspend fun onStop() {
         if (!running) return
         running = false
+        stopIncomingScope()
         gateway.close()
         gateway = NoopOneBotGateway()
-        stopIncomingScope()
         logger.info { "OneBot 已停止" }
     }
 

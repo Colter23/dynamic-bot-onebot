@@ -19,10 +19,13 @@ internal class ForwardWsOneBotGateway(
     private val connections: MutableList<ForwardConnection> = mutableListOf()
     @Volatile
     private var incomingMessageHandler: ((OneBotIncomingMessage) -> Unit)? = null
+    @Volatile
+    private var closing: Boolean = false
 
     override fun connect(onIncomingMessage: (OneBotIncomingMessage) -> Unit) {
         if (connections.isNotEmpty()) return
 
+        closing = false
         incomingMessageHandler = onIncomingMessage
         config.enabledConnections().forEachIndexed { index, connection ->
             val runtimeConnection = ForwardConnection(
@@ -163,15 +166,15 @@ internal class ForwardWsOneBotGateway(
     }
 
     override suspend fun close() {
+        closing = true
+        incomingMessageHandler = null
         val active = connections.toList()
         connections.clear()
         active.forEach { connection ->
+            val client = connection.client
+            connection.client = null
             withContext(Dispatchers.IO) {
-                runCatching {
-                    connection.client?.close()
-                }.onFailure {
-                    logger.warn(it) { "OneBot 正向连接关闭失败：connectionId=${connection.connectionId}，name=${connection.name.ifBlank { "-" }}，url=${connection.url}" }
-                }
+                closeClientQuickly(connection, client)
             }
         }
     }
@@ -190,6 +193,7 @@ internal class ForwardWsOneBotGateway(
     }
 
     private fun ForwardConnection.cachedOrRefreshRuntimeAccount(): OneBotRuntimeAccount? {
+        if (closing) return account
         val current = account
         val currentClient = client
         if (currentClient == null || !currentClient.isOpenForAction()) {
@@ -231,10 +235,12 @@ internal class ForwardWsOneBotGateway(
     }
 
     private fun ForwardConnection.rebuildClientIfDue() {
+        if (closing) return
         val handler = incomingMessageHandler ?: return
         if (!config.reconnect) return
 
         synchronized(rebuildLock) {
+            if (closing) return
             val now = nowMillis()
             val unavailableAt = unavailableSinceAt ?: return
             if (now - unavailableAt < reconnectIntervalMillis()) return
@@ -245,12 +251,7 @@ internal class ForwardWsOneBotGateway(
                 "OneBot 正向连接不可用，准备重新发起连接：connectionId=$connectionId，name=${name.ifBlank { "-" }}，url=$url"
             }
             val previousClient = client
-            runCatching { previousClient?.close() }
-                .onFailure {
-                    logger.debug(it) {
-                        "OneBot 正向连接旧客户端关闭失败，继续重建：connectionId=$connectionId，url=$url"
-                    }
-                }
+            closeClientQuickly(this, previousClient)
             client = runCatching {
                 openClient(handler)
             }.onSuccess {
@@ -369,6 +370,31 @@ internal class ForwardWsOneBotGateway(
 
     private fun OneBotClient.isOpenForAction(): Boolean {
         return runCatching { ws?.isOpen == true }.getOrDefault(false)
+    }
+
+    private fun closeClientQuickly(connection: ForwardConnection, client: OneBotClient?) {
+        if (client == null) return
+        runCatching {
+            client.ws?.stopWithoutReconnect(1000, "shutdown")
+        }.onFailure {
+            logger.debug(it) {
+                "OneBot 正向连接 WebSocket 快速关闭失败：connectionId=${connection.connectionId}，url=${connection.url}"
+            }
+        }
+        runCatching {
+            client.eventExecutor.shutdownNow()
+        }.onFailure {
+            logger.debug(it) {
+                "OneBot 正向连接事件线程池关闭失败：connectionId=${connection.connectionId}，url=${connection.url}"
+            }
+        }
+        runCatching {
+            client.wsPool.shutdownNow()
+        }.onFailure {
+            logger.debug(it) {
+                "OneBot 正向连接 WebSocket 线程池关闭失败：connectionId=${connection.connectionId}，url=${connection.url}"
+            }
+        }
     }
 
     private data class ForwardConnection(

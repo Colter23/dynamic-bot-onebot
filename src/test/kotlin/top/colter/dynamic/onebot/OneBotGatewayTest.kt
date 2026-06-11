@@ -7,13 +7,37 @@ import cn.evole.onebot.sdk.entity.MsgId
 import cn.evole.onebot.sdk.response.contact.LoginInfoResp
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
+import java.net.ServerSocket
 import java.util.LinkedList
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 class OneBotGatewayTest {
+
+    @Test
+    fun `forward websocket close should return quickly when connection never succeeds`() = runBlocking {
+        val port = ServerSocket(0).use { it.localPort }
+        val gateway = ForwardWsOneBotGateway(
+            OneBotConfig(
+                connections = listOf(
+                    OneBotForwardConnectionConfig(url = "ws://127.0.0.1:$port"),
+                ),
+                reconnectIntervalSeconds = 1,
+            ),
+        )
+
+        gateway.connect { }
+        delay(200)
+
+        withTimeout(1_000) {
+            gateway.close()
+        }
+    }
 
     @Test
     fun `accept no response as sent`() {
