@@ -27,7 +27,6 @@ class OneBotGatewayTest {
                 connections = listOf(
                     OneBotForwardConnectionConfig(url = "ws://127.0.0.1:$port"),
                 ),
-                reconnectIntervalSeconds = 1,
             ),
         )
 

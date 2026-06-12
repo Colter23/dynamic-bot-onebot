@@ -14,7 +14,6 @@ public data class OneBotConfig(
     val port: Int = 6701,
     val reverseAccessToken: String = "",
     val reconnect: Boolean = true,
-    val reconnectIntervalSeconds: Int = 5,
     val mediaDeliveryProfileId: String = "",
 )
 
@@ -38,6 +37,12 @@ public object OneBotConfigForm {
             description = "删除旧版 SDK 最大重连次数配置，统一由插件按重连间隔长期重建客户端",
         ) {
             remove("reconnectMaxTimes")
+        },
+        ConfigMigration(
+            id = "onebot-reconnect-backoff",
+            description = "删除固定重连间隔配置，改为内置渐进退避重连",
+        ) {
+            remove("reconnectIntervalSeconds")
         },
         ConfigMigration(
             id = "onebot-media-delivery-profile",
@@ -131,19 +136,7 @@ public object OneBotConfigForm {
                 label = "自动重连",
                 type = ConfigFieldType.BOOLEAN,
                 section = "重连",
-                description = "正向连接不可用后是否由插件定时重建客户端。\n关闭后断线需要手动重启插件；反向模式由 OneBot 客户端自己重连。",
-                restartRequired = true,
-                restartTarget = "OneBot 插件",
-                visibleWhen = forwardWsOnly(),
-            ),
-            ConfigFieldSpec(
-                path = "reconnectIntervalSeconds",
-                label = "重连间隔（秒）",
-                type = ConfigFieldType.NUMBER,
-                section = "重连",
-                description = "正向连接不可用后，每隔多久重新发起一次连接。\n只对正向 WebSocket 生效。",
-                min = 1,
-                numberKind = ConfigNumberKind.INTEGER,
+                description = "正向连接不可用后是否由插件自动重建客户端。\n开启后会逐步拉长重连间隔，最长 1 小时；反向模式由 OneBot 客户端自己重连。",
                 restartRequired = true,
                 restartTarget = "OneBot 插件",
                 visibleWhen = forwardWsOnly(),
@@ -163,7 +156,6 @@ public object OneBotConfigForm {
 
     public fun validate(config: OneBotConfig) {
         require(config.port in 1..65_535) { "反向 WebSocket 端口必须在 1 到 65535 之间" }
-        require(config.reconnectIntervalSeconds >= 1) { "重连间隔不能小于 1 秒" }
 
         when (config.mode) {
             OneBotConnectionMode.FORWARD_WS -> {

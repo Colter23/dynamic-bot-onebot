@@ -3,6 +3,7 @@ package top.colter.dynamic.onebot
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import top.colter.dynamic.core.config.ConfigFieldType
 
@@ -13,7 +14,6 @@ class OneBotConfigFormTest {
         val reverseTokenField = OneBotConfigForm.spec.fields.single { it.path == "reverseAccessToken" }
         val portField = OneBotConfigForm.spec.fields.single { it.path == "port" }
         val reconnectField = OneBotConfigForm.spec.fields.single { it.path == "reconnect" }
-        val reconnectIntervalField = OneBotConfigForm.spec.fields.single { it.path == "reconnectIntervalSeconds" }
         val hostField = OneBotConfigForm.spec.fields.single { it.path == "host" }
         val mediaDeliveryProfileField = OneBotConfigForm.spec.fields.single { it.path == "mediaDeliveryProfileId" }
 
@@ -27,9 +27,8 @@ class OneBotConfigFormTest {
         assertEquals(1, portField.min)
         assertEquals(65_535, portField.max)
         assertEquals(listOf(OneBotConnectionMode.REVERSE_WS.name), hostField.visibleWhen?.values)
-        assertTrue(reconnectField.description.contains("手动重启插件"))
-        assertEquals(1, reconnectIntervalField.min)
-        assertEquals(listOf(OneBotConnectionMode.FORWARD_WS.name), reconnectIntervalField.visibleWhen?.values)
+        assertTrue(reconnectField.description.contains("最长 1 小时"))
+        assertFalse(OneBotConfigForm.spec.fields.any { it.path == "reconnectIntervalSeconds" })
         assertEquals(ConfigFieldType.TEXT, mediaDeliveryProfileField.type)
         assertTrue(mediaDeliveryProfileField.description.contains("主配置媒体交付 profile"))
     }
@@ -42,7 +41,6 @@ class OneBotConfigFormTest {
         assertEquals(listOf(""), config.connections.map { it.accessToken })
         assertEquals(listOf(""), config.connections.map { it.name })
         assertTrue(config.reconnect)
-        assertEquals(5, config.reconnectIntervalSeconds)
         assertEquals("", config.mediaDeliveryProfileId)
     }
 

@@ -223,7 +223,7 @@ internal class ForwardWsOneBotGateway(
         }.onSuccess {
             val previous = account
             account = it
-            unavailableSinceAt = null
+            resetReconnectBackoff()
             if (previous?.accountId != it.accountId) {
                 logger.info { "OneBot 正向连接账号已识别：connectionId=$connectionId，name=${name.ifBlank { "-" }}，accountId=${it.accountId}，accountName=${it.name}" }
             } else if (previous.state != MessageSinkRouteState.READY) {
@@ -242,25 +242,25 @@ internal class ForwardWsOneBotGateway(
         synchronized(rebuildLock) {
             if (closing) return
             val now = nowMillis()
-            val unavailableAt = unavailableSinceAt ?: return
-            if (now - unavailableAt < reconnectIntervalMillis()) return
-            if (now - lastClientRebuildAt < reconnectIntervalMillis()) return
+            recordUnavailable(now)
+            val nextReconnectAt = nextClientRebuildAt
+            if (nextReconnectAt > 0 && now < nextReconnectAt) return
 
-            lastClientRebuildAt = now
-            logger.warn {
-                "OneBot 正向连接不可用，准备重新发起连接：connectionId=$connectionId，name=${name.ifBlank { "-" }}，url=$url"
-            }
+            val attempt = reconnectAttempts + 1
+            logReconnectAttempt(attempt)
             val previousClient = client
             closeClientQuickly(this, previousClient)
             client = runCatching {
                 openClient(handler)
             }.onSuccess {
                 logger.info {
-                    "OneBot 正向连接已重新发起：connectionId=$connectionId，name=${name.ifBlank { "-" }}，url=$url"
+                    "OneBot 正向连接已重新发起：connectionId=$connectionId，name=${name.ifBlank { "-" }}，url=$url，attempt=$attempt"
                 }
             }.onFailure {
                 markUnavailable(it.message ?: "OneBot 正向连接客户端重建失败", it)
             }.getOrNull()
+            reconnectAttempts = attempt
+            scheduleNextReconnect(now)
         }
     }
 
@@ -270,7 +270,7 @@ internal class ForwardWsOneBotGateway(
         return OneBotClient.create(
             BotConfig(url, accessToken).apply {
                 isReconnect = false
-                reconnectInterval = config.reconnectIntervalSeconds
+                reconnectInterval = DEFAULT_SDK_RECONNECT_INTERVAL_SECONDS
                 reconnectMaxTimes = 0
             },
             OneBotIncomingListener(
@@ -282,14 +282,45 @@ internal class ForwardWsOneBotGateway(
         ).open()
     }
 
-    private fun ForwardConnection.recordUnavailable() {
+    private fun ForwardConnection.recordUnavailable(now: Long = nowMillis()) {
         if (unavailableSinceAt == null) {
-            unavailableSinceAt = nowMillis()
+            unavailableSinceAt = now
+            reconnectAttempts = 0
+            scheduleNextReconnect(now)
         }
     }
 
-    private fun reconnectIntervalMillis(): Long {
-        return config.reconnectIntervalSeconds.coerceAtLeast(1) * MILLIS_PER_SECOND
+    private fun ForwardConnection.scheduleNextReconnect(now: Long) {
+        nextClientRebuildAt = now + reconnectDelayMillis(reconnectAttempts)
+    }
+
+    private fun ForwardConnection.resetReconnectBackoff() {
+        unavailableSinceAt = null
+        reconnectAttempts = 0
+        nextClientRebuildAt = 0L
+    }
+
+    private fun reconnectDelayMillis(completedAttempts: Int): Long {
+        return RECONNECT_BACKOFF_MILLIS[completedAttempts.coerceIn(0, RECONNECT_BACKOFF_MILLIS.lastIndex)]
+    }
+
+    private fun ForwardConnection.logReconnectAttempt(attempt: Int) {
+        val nextDelay = reconnectDelayMillis(attempt)
+        val message = "OneBot 正向连接不可用，准备自动重连：connectionId=$connectionId，name=${name.ifBlank { "-" }}，url=$url，attempt=$attempt，若仍失败下次间隔=${nextDelay.formatDelay()}"
+        if (attempt == 1) {
+            logger.warn { message }
+        } else {
+            logger.info { message }
+        }
+    }
+
+    private fun Long.formatDelay(): String {
+        val seconds = this / MILLIS_PER_SECOND
+        return when {
+            seconds < 60 -> "${seconds}秒"
+            seconds < 3_600 -> "${seconds / 60}分钟"
+            else -> "${seconds / 3_600}小时"
+        }
     }
 
     private fun ForwardConnection.markUnavailable(
@@ -411,7 +442,9 @@ internal class ForwardWsOneBotGateway(
         @Volatile
         var unavailableSinceAt: Long? = null,
         @Volatile
-        var lastClientRebuildAt: Long = 0L,
+        var reconnectAttempts: Int = 0,
+        @Volatile
+        var nextClientRebuildAt: Long = 0L,
         @Volatile
         var lastIdentifyFailureLogAt: Long = 0L,
         @Volatile
@@ -419,7 +452,18 @@ internal class ForwardWsOneBotGateway(
     )
 
     private companion object {
+        private const val DEFAULT_SDK_RECONNECT_INTERVAL_SECONDS: Int = 5
         private const val IDENTIFY_FAILURE_WARN_INTERVAL_MS: Long = 5 * 60 * 1000L
         private const val MILLIS_PER_SECOND: Long = 1000L
+        private val RECONNECT_BACKOFF_MILLIS: LongArray = longArrayOf(
+            5 * MILLIS_PER_SECOND,
+            10 * MILLIS_PER_SECOND,
+            30 * MILLIS_PER_SECOND,
+            60 * MILLIS_PER_SECOND,
+            5 * 60 * MILLIS_PER_SECOND,
+            10 * 60 * MILLIS_PER_SECOND,
+            30 * 60 * MILLIS_PER_SECOND,
+            60 * 60 * MILLIS_PER_SECOND,
+        )
     }
 }
