@@ -194,6 +194,10 @@ class OneBotMessageMapperTest {
                                                     fallbackText = "",
                                                     image = MediaRef("https://example.com/a.png", MediaKind.IMAGE),
                                                 ),
+                                                MessageContent.Video(
+                                                    fallbackText = "",
+                                                    video = MediaRef("file:///tmp/video.mp4", MediaKind.VIDEO),
+                                                ),
                                                 MessageContent.Text("node text"),
                                             ),
                                         ),
@@ -221,7 +225,9 @@ class OneBotMessageMapperTest {
         val content = assertIs<com.google.gson.JsonArray>(data["content"])
         assertEquals("image", content[0].asJsonObject["type"].asString)
         assertEquals("https://example.com/a.png", content[0].asJsonObject["data"].asJsonObject["file"].asString)
-        assertEquals("node text", content[1].asJsonObject["data"].asJsonObject["text"].asString)
+        assertEquals("video", content[1].asJsonObject["type"].asString)
+        assertEquals("file:///tmp/video.mp4", content[1].asJsonObject["data"].asJsonObject["file"].asString)
+        assertEquals("node text", content[2].asJsonObject["data"].asJsonObject["text"].asString)
         assertEquals("after", assertIs<OneBotSendUnit.Normal>(units[2]).message[0].asJsonObject["data"].asJsonObject["text"].asString)
     }
 
