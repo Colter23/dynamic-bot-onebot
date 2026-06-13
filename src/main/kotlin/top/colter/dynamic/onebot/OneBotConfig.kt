@@ -14,7 +14,6 @@ public data class OneBotConfig(
     val port: Int = 6701,
     val reverseAccessToken: String = "",
     val reconnect: Boolean = true,
-    val mediaDeliveryProfileId: String = "",
 )
 
 public data class OneBotForwardConnectionConfig(
@@ -22,7 +21,6 @@ public data class OneBotForwardConnectionConfig(
     val accessToken: String = "",
     val name: String = "",
     val enabled: Boolean = true,
-    val mediaDeliveryProfileId: String = "",
 )
 
 public enum class OneBotConnectionMode {
@@ -46,7 +44,7 @@ public object OneBotConfigForm {
         },
         ConfigMigration(
             id = "onebot-media-delivery-profile",
-            description = "删除 OneBot 小图 Base64 阈值配置，改为引用主配置的媒体交付 profile",
+            description = "删除 OneBot 小图 Base64 阈值配置，统一使用主配置媒体交付策略",
         ) {
             remove("localImageBase64MaxBytes")
         },
@@ -60,7 +58,7 @@ public object OneBotConfigForm {
                 path = "mode",
                 label = "连接模式",
                 type = ConfigFieldType.SELECT,
-                section = "连接",
+                section = "连接与投递",
                 description = "选择 OneBot 客户端和本插件的连接方向。\n正向是插件去连 OneBot 客户端；反向是 OneBot 客户端来连本插件。",
                 options = listOf(
                     top.colter.dynamic.core.config.ConfigFieldOption(OneBotConnectionMode.FORWARD_WS.name, "正向 WebSocket"),
@@ -74,7 +72,7 @@ public object OneBotConfigForm {
                 path = "connections",
                 label = "正向连接",
                 type = ConfigFieldType.JSON,
-                section = "连接",
+                section = "连接与投递",
                 description = "需要主动连接的 OneBot WebSocket 地址。\n可配置多个连接；账号 ID 和名称会在连接成功后自动识别。",
                 component = "ONEBOT_CONNECTION_TABLE",
                 required = true,
@@ -85,7 +83,7 @@ public object OneBotConfigForm {
                     "example" to """
                         [
                           {"name":"本机 NapCat","url":"ws://127.0.0.1:6700","accessToken":"","enabled":true},
-                          {"name":"备用连接","url":"ws://127.0.0.1:6702","accessToken":"token","enabled":true,"mediaDeliveryProfileId":"remote"}
+                          {"name":"备用连接","url":"ws://127.0.0.1:6702","accessToken":"token","enabled":true}
                         ]
                     """.trimIndent(),
                 ),
@@ -94,7 +92,7 @@ public object OneBotConfigForm {
                 path = "host",
                 label = "反向 WebSocket 监听地址",
                 type = ConfigFieldType.TEXT,
-                section = "连接",
+                section = "连接与投递",
                 description = "反向 WebSocket 服务监听的地址。\n本机使用通常填 127.0.0.1；如果填 0.0.0.0，请务必配置 Token。",
                 restartRequired = true,
                 restartTarget = "OneBot 插件",
@@ -104,7 +102,7 @@ public object OneBotConfigForm {
                 path = "port",
                 label = "反向 WebSocket 端口",
                 type = ConfigFieldType.NUMBER,
-                section = "连接",
+                section = "连接与投递",
                 description = "反向 WebSocket 服务监听的端口。\nOneBot 客户端需要连接到这个端口。",
                 min = 1,
                 max = 65_535,
@@ -117,7 +115,7 @@ public object OneBotConfigForm {
                 path = "reverseAccessToken",
                 label = "反向连接 Token",
                 type = ConfigFieldType.SECRET,
-                section = "连接",
+                section = "连接与投递",
                 description = "反向连接时校验客户端身份的令牌。\n监听非本机地址时必须填写，避免陌生客户端连入。",
                 secret = true,
                 restartRequired = true,
@@ -125,17 +123,10 @@ public object OneBotConfigForm {
                 visibleWhen = reverseWsOnly(),
             ),
             ConfigFieldSpec(
-                path = "mediaDeliveryProfileId",
-                label = "媒体交付 profile",
-                type = ConfigFieldType.TEXT,
-                section = "消息",
-                description = "默认使用的主配置媒体交付 profile ID。\n正向连接也可以在 connections 里单独设置 mediaDeliveryProfileId；留空时使用主配置默认 profile。",
-            ),
-            ConfigFieldSpec(
                 path = "reconnect",
                 label = "自动重连",
                 type = ConfigFieldType.BOOLEAN,
-                section = "重连",
+                section = "连接与投递",
                 description = "正向连接不可用后是否由插件自动重建客户端。\n开启后会逐步拉长重连间隔，最长 1 小时；反向模式由 OneBot 客户端自己重连。",
                 restartRequired = true,
                 restartTarget = "OneBot 插件",
@@ -190,7 +181,6 @@ internal fun OneBotConfig.enabledConnections(): List<OneBotForwardConnectionConf
                 url = it.url.trim(),
                 accessToken = it.accessToken.trim(),
                 name = it.name.trim(),
-                mediaDeliveryProfileId = it.mediaDeliveryProfileId.trim(),
             )
         }
         .filter { it.enabled }

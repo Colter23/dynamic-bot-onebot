@@ -61,8 +61,6 @@ public class OneBotGatewayPlugin :
 
     override val transportId: String = "onebot"
     override val transportName: String = "OneBot"
-    override val mediaDeliveryProfileId: String
-        get() = config.mediaDeliveryProfileId
     override val supportedMessageFeatures: Set<MessageSinkFeature> = setOf(MessageSinkFeature.MERGED_FORWARD)
     override val supportedTargetPlatforms: Set<PlatformId> = setOf(QQ_PLATFORM_ID)
     override val supportedTargetKinds: Set<TargetKind> = setOf(TargetKind.GROUP, TargetKind.USER)
@@ -424,7 +422,6 @@ public class OneBotGatewayPlugin :
         accountAvatar = oneBotTargetAvatar(TargetKind.USER, accountId),
         enabled = true,
         state = state,
-        mediaDeliveryProfileId = mediaDeliveryProfileId,
     )
 
     private fun routeId(accountId: String): String = "$transportId:${QQ_PLATFORM_ID.value}:$accountId"

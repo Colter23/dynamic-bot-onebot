@@ -15,8 +15,8 @@ class OneBotConfigFormTest {
         val portField = OneBotConfigForm.spec.fields.single { it.path == "port" }
         val reconnectField = OneBotConfigForm.spec.fields.single { it.path == "reconnect" }
         val hostField = OneBotConfigForm.spec.fields.single { it.path == "host" }
-        val mediaDeliveryProfileField = OneBotConfigForm.spec.fields.single { it.path == "mediaDeliveryProfileId" }
 
+        assertEquals(setOf("连接与投递"), OneBotConfigForm.spec.fields.map { it.section }.toSet())
         assertEquals(ConfigFieldType.JSON, connectionsField.type)
         assertEquals("ONEBOT_CONNECTION_TABLE", connectionsField.component)
         assertTrue(connectionsField.restartRequired)
@@ -29,8 +29,6 @@ class OneBotConfigFormTest {
         assertEquals(listOf(OneBotConnectionMode.REVERSE_WS.name), hostField.visibleWhen?.values)
         assertTrue(reconnectField.description.contains("最长 1 小时"))
         assertFalse(OneBotConfigForm.spec.fields.any { it.path == "reconnectIntervalSeconds" })
-        assertEquals(ConfigFieldType.TEXT, mediaDeliveryProfileField.type)
-        assertTrue(mediaDeliveryProfileField.description.contains("主配置媒体交付 profile"))
     }
 
     @Test
@@ -41,7 +39,6 @@ class OneBotConfigFormTest {
         assertEquals(listOf(""), config.connections.map { it.accessToken })
         assertEquals(listOf(""), config.connections.map { it.name })
         assertTrue(config.reconnect)
-        assertEquals("", config.mediaDeliveryProfileId)
     }
 
     @Test
@@ -109,14 +106,13 @@ class OneBotConfigFormTest {
     }
 
     @Test
-    fun `enabled connections should trim marker url token and media profile`() {
+    fun `enabled connections should trim marker url token and name`() {
         val config = OneBotConfig(
             connections = listOf(
                 OneBotForwardConnectionConfig(
                     url = "  ws://127.0.0.1:6701  ",
                     accessToken = " token ",
                     name = " 主连接 ",
-                    mediaDeliveryProfileId = " local ",
                 ),
             ),
         )
@@ -127,7 +123,6 @@ class OneBotConfigFormTest {
                     url = "ws://127.0.0.1:6701",
                     accessToken = "token",
                     name = "主连接",
-                    mediaDeliveryProfileId = "local",
                 ),
             ),
             config.enabledConnections(),
