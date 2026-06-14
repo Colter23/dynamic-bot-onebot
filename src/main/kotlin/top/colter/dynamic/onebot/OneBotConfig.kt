@@ -29,26 +29,7 @@ public enum class OneBotConnectionMode {
 }
 
 public object OneBotConfigForm {
-    public val migrations: List<ConfigMigration> = listOf(
-        ConfigMigration(
-            id = "remove-reconnect-max-times",
-            description = "删除旧版 SDK 最大重连次数配置，统一由插件按重连间隔长期重建客户端",
-        ) {
-            remove("reconnectMaxTimes")
-        },
-        ConfigMigration(
-            id = "onebot-reconnect-backoff",
-            description = "删除固定重连间隔配置，改为内置渐进退避重连",
-        ) {
-            remove("reconnectIntervalSeconds")
-        },
-        ConfigMigration(
-            id = "onebot-media-delivery-profile",
-            description = "删除 OneBot 小图 Base64 阈值配置，统一使用主配置媒体交付策略",
-        ) {
-            remove("localImageBase64MaxBytes")
-        },
-    )
+    public val migrations: List<ConfigMigration> = listOf()
 
     public val spec: ConfigFormSpec = ConfigFormSpec(
         title = "OneBot 网关",
