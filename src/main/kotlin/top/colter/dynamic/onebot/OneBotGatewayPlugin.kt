@@ -366,7 +366,13 @@ public class OneBotGatewayPlugin :
                 }
                 sentCount += 1
             }
-            MessageSendResult.sent(encodeSinkMessageIds(sinkMessageIds), sinkRouteId = routeId, sinkAccountId = accountId)
+            MessageSendResult.sent(
+                sinkMessageId = encodeSinkMessageIds(sinkMessageIds),
+                sinkRouteId = routeId,
+                sinkAccountId = accountId,
+                sinkTransportId = transportId,
+                sinkMessageIds = sinkMessageIds,
+            )
         }.getOrElse {
             MessageSendResult.failed(
                 reason = it.message ?: failureLabel,

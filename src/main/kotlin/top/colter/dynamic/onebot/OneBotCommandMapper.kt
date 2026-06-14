@@ -4,6 +4,8 @@ import java.util.UUID
 import top.colter.dynamic.core.command.CommandPublishRequest
 import top.colter.dynamic.core.data.CommandContext
 import top.colter.dynamic.core.data.IncomingMessage
+import top.colter.dynamic.core.data.IncomingMessageReference
+import top.colter.dynamic.core.data.IncomingMessageSegment
 import top.colter.dynamic.core.data.PlatformId
 import top.colter.dynamic.core.data.TargetAddress
 import top.colter.dynamic.core.data.TargetKind
@@ -24,6 +26,7 @@ public object OneBotCommandMapper {
             senderId = incoming.senderId,
             botAccountId = incoming.botAccountId,
             messageId = incoming.messageId,
+            replyTo = incoming.replyToReference(),
             timestamp = incoming.timestamp,
             text = incoming.text,
             segments = incoming.segments,
@@ -59,5 +62,20 @@ public object OneBotCommandMapper {
             OneBotChatType.GROUP -> TargetKind.GROUP
             OneBotChatType.PRIVATE -> TargetKind.USER
         }
+    }
+
+    private fun OneBotIncomingMessage.replyToReference(): IncomingMessageReference? {
+        return segments
+            .asSequence()
+            .filterIsInstance<IncomingMessageSegment.Reply>()
+            .mapNotNull { segment ->
+                segment.messageId.trim().takeIf { it.isNotBlank() }?.let { messageId ->
+                    IncomingMessageReference(
+                        messageId = messageId,
+                        rawPayload = segment.rawPayload,
+                    )
+                }
+            }
+            .firstOrNull()
     }
 }
