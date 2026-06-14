@@ -15,6 +15,8 @@ import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
 import top.colter.dynamic.core.command.CommandPublishRequest
 import top.colter.dynamic.core.command.CommandPublisher
+import top.colter.dynamic.core.data.IncomingMessage
+import top.colter.dynamic.core.plugin.IncomingMessagePublisher
 
 class OneBotGatewayPluginIncomingTest {
     @Test
@@ -49,6 +51,42 @@ class OneBotGatewayPluginIncomingTest {
     }
 
     @Test
+    fun `incoming non command message should publish incoming event only`() = runBlocking {
+        val plugin = OneBotGatewayPlugin()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val publishedCommand = CompletableDeferred<CommandPublishRequest>()
+        val publishedIncoming = CompletableDeferred<IncomingMessage>()
+        plugin.prepareIncomingTest(
+            scope = scope,
+            publishCommand = { request -> publishedCommand.complete(request) },
+            publishIncoming = { message -> publishedIncoming.complete(message) },
+        )
+
+        try {
+            plugin.setPrivate("running", true)
+
+            plugin.invokeIncoming(
+                OneBotIncomingMessage(
+                    chatType = OneBotChatType.GROUP,
+                    chatId = "12345",
+                    senderId = "67890",
+                    text = "",
+                    botAccountId = "42",
+                    messageId = "321",
+                )
+            )
+
+            val incoming = withTimeout(500) { publishedIncoming.await() }
+            assertEquals("321", incoming.messageId)
+            assertEquals("", incoming.text)
+            assertNull(withTimeoutOrNull(200) { publishedCommand.await() })
+        } finally {
+            plugin.callPrivate("stopIncomingScope")
+            scope.cancel()
+        }
+    }
+
+    @Test
     fun `incoming command should be ignored after stop`() = runBlocking {
         val plugin = OneBotGatewayPlugin()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -71,11 +109,13 @@ class OneBotGatewayPluginIncomingTest {
 
     private fun OneBotGatewayPlugin.prepareIncomingTest(
         scope: CoroutineScope,
-        publish: suspend (CommandPublishRequest) -> Unit,
+        publishIncoming: suspend (IncomingMessage) -> Unit = {},
+        publishCommand: suspend (CommandPublishRequest) -> Unit,
     ) {
         setPrivate("pluginId", ONEBOT_PLUGIN_ID)
         setPrivate("pluginScope", scope)
-        setPrivate("commandPublisher", CommandPublisher { request -> publish(request) })
+        setPrivate("commandPublisher", CommandPublisher { request -> publishCommand(request) })
+        setPrivate("incomingMessagePublisher", IncomingMessagePublisher { message -> publishIncoming(message) })
         callPrivate("startIncomingScope")
     }
 

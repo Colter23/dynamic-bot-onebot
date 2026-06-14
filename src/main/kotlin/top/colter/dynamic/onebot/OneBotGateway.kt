@@ -8,6 +8,7 @@ import cn.evole.onebot.sdk.entity.MsgId
 import cn.evole.onebot.sdk.enums.ActionType
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
+import top.colter.dynamic.core.data.IncomingMessageSegment
 import top.colter.dynamic.core.plugin.MessageSinkRouteState
 
 internal const val ONEBOT_PLUGIN_ID: String = "onebot-gateway"
@@ -18,6 +19,11 @@ public data class OneBotIncomingMessage(
     val senderId: String,
     val text: String,
     val botAccountId: String? = null,
+    val messageId: String = "",
+    val timestamp: Long = 0,
+    val segments: List<IncomingMessageSegment> = emptyList(),
+    val rawFormat: String = "",
+    val rawPayload: String = "",
     val mentionedAccountIds: Set<String> = emptySet(),
 )
 

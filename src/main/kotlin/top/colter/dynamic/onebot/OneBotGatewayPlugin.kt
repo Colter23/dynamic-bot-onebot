@@ -16,6 +16,7 @@ import top.colter.dynamic.core.data.TargetAddress
 import top.colter.dynamic.core.data.TargetKind
 import top.colter.dynamic.core.plugin.AccountRoutedMessageSinkPlugin
 import top.colter.dynamic.core.plugin.CommandResultSendRequest
+import top.colter.dynamic.core.plugin.IncomingMessagePublisher
 import top.colter.dynamic.core.plugin.MessageDeliveryRequest
 import top.colter.dynamic.core.plugin.MessageRecallRequest
 import top.colter.dynamic.core.plugin.MessageRecallResult
@@ -47,6 +48,7 @@ public class OneBotGatewayPlugin :
     private var config: OneBotConfig = OneBotConfig()
     private var gateway: OneBotGateway = NoopOneBotGateway()
     private lateinit var commandPublisher: CommandPublisher
+    private var incomingMessagePublisher: IncomingMessagePublisher = IncomingMessagePublisher { }
     private lateinit var pluginScope: CoroutineScope
     private var incomingScope: CoroutineScope? = null
     private var incomingJob: Job? = null
@@ -68,6 +70,7 @@ public class OneBotGatewayPlugin :
     override suspend fun onLoad(context: PluginContext) {
         pluginId = context.pluginId
         commandPublisher = context.commandPublisher
+        incomingMessagePublisher = context.incomingMessagePublisher
         pluginScope = context.scope
         config = context.configService.loadOrCreate(pluginId, OneBotConfigForm.migrations) { OneBotConfig() }
         OneBotConfigForm.validate(config)
@@ -464,17 +467,28 @@ public class OneBotGatewayPlugin :
         val commandRequest = OneBotCommandMapper.toCommandRequest(
             sourcePlugin = pluginId,
             incoming = incoming,
-        ) ?: return
+        )
+        val incomingMessage = OneBotCommandMapper.toIncomingMessage(incoming)
 
         val scope = incomingScope ?: return
         scope.launch {
             if (!running) return@launch
-            try {
-                commandPublisher.publish(commandRequest)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Throwable) {
-                logger.warn(e) { "OneBot 命令事件提交失败：traceId=${commandRequest.traceId}" }
+            runCatching {
+                incomingMessagePublisher.publish(incomingMessage)
+            }.onFailure { error ->
+                if (error is CancellationException) throw error
+                logger.warn(error) {
+                    "OneBot 入站消息提交失败：messageId=${incoming.messageId.ifBlank { "-" }}"
+                }
+            }
+            if (commandRequest != null) {
+                try {
+                    commandPublisher.publish(commandRequest)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Throwable) {
+                    logger.warn(e) { "OneBot 命令事件提交失败：traceId=${commandRequest.traceId}" }
+                }
             }
         }
     }
