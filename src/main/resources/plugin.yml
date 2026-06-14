@@ -2,6 +2,6 @@ id: onebot-gateway
 name: OneBot 网关插件
 version: 0.0.1
 mainClass: top.colter.dynamic.onebot.OneBotGatewayPlugin
-apiVersion: 4.0.0
+apiVersion: 1.0.0
 description: 通过正向或反向 WebSocket 连接 OneBot，实现消息投递与命令接收。
 author: dynamic-bot
