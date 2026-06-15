@@ -515,7 +515,9 @@ public class OneBotGatewayPlugin :
 
     private fun OneBotConfig.endpointLabel(): String {
         return when (mode) {
-            OneBotConnectionMode.FORWARD_WS -> enabledConnections().joinToString { it.url }
+            OneBotConnectionMode.FORWARD_WS -> enabledConnections()
+                .joinToString { it.url }
+                .ifBlank { "未启用正向连接" }
             OneBotConnectionMode.REVERSE_WS -> "$host:$port"
         }
     }

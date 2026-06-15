@@ -27,7 +27,7 @@ class OneBotGatewayTest {
         val gateway = ForwardWsOneBotGateway(
             OneBotConfig(
                 connections = listOf(
-                    OneBotForwardConnectionConfig(url = "ws://127.0.0.1:$port"),
+                    OneBotForwardConnectionConfig(url = "ws://127.0.0.1:$port", enabled = true),
                 ),
             ),
         )

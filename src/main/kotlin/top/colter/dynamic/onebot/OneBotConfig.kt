@@ -20,7 +20,7 @@ public data class OneBotForwardConnectionConfig(
     val url: String = "ws://127.0.0.1:6700",
     val accessToken: String = "",
     val name: String = "",
-    val enabled: Boolean = true,
+    val enabled: Boolean = false,
 )
 
 public enum class OneBotConnectionMode {
@@ -132,7 +132,6 @@ public object OneBotConfigForm {
         when (config.mode) {
             OneBotConnectionMode.FORWARD_WS -> {
                 val enabledConnections = config.enabledConnections()
-                require(enabledConnections.isNotEmpty()) { "至少需要启用一个正向 WebSocket 连接" }
                 enabledConnections.forEachIndexed { index, connection ->
                     require(connection.url.isNotBlank()) { "正向连接[$index].url 不能为空" }
                 }

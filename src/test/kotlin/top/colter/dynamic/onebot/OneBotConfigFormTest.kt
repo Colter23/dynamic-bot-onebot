@@ -32,12 +32,13 @@ class OneBotConfigFormTest {
     }
 
     @Test
-    fun `default config should keep one forward websocket connection and reconnect enabled`() {
+    fun `default config should keep one disabled forward websocket connection and reconnect enabled`() {
         val config = OneBotConfig()
 
         assertEquals(listOf("ws://127.0.0.1:6700"), config.connections.map { it.url })
         assertEquals(listOf(""), config.connections.map { it.accessToken })
         assertEquals(listOf(""), config.connections.map { it.name })
+        assertEquals(listOf(false), config.connections.map { it.enabled })
         assertTrue(config.reconnect)
     }
 
@@ -47,7 +48,9 @@ class OneBotConfigFormTest {
 
         val result = plugin.applyConfig(
             OneBotConfig(
-                connections = listOf(OneBotForwardConnectionConfig(url = "ws://127.0.0.1:6701")),
+                connections = listOf(
+                    OneBotForwardConnectionConfig(url = "ws://127.0.0.1:6701", enabled = true),
+                ),
             ),
         )
 
@@ -66,20 +69,17 @@ class OneBotConfigFormTest {
     }
 
     @Test
-    fun `config validate should reject invalid connections`() {
-        val noEnabledConnection = assertFailsWith<IllegalArgumentException> {
-            OneBotConfigForm.validate(
-                OneBotConfig(
-                    connections = listOf(OneBotForwardConnectionConfig(enabled = false)),
-                ),
-            )
-        }
-        assertEquals("至少需要启用一个正向 WebSocket 连接", noEnabledConnection.message)
+    fun `config validate should allow disabled forward connections and reject invalid enabled connections`() {
+        OneBotConfigForm.validate(
+            OneBotConfig(
+                connections = listOf(OneBotForwardConnectionConfig(enabled = false)),
+            ),
+        )
 
         val blankUrl = assertFailsWith<IllegalArgumentException> {
             OneBotConfigForm.validate(
                 OneBotConfig(
-                    connections = listOf(OneBotForwardConnectionConfig(url = " ")),
+                    connections = listOf(OneBotForwardConnectionConfig(url = " ", enabled = true)),
                 ),
             )
         }
@@ -113,6 +113,7 @@ class OneBotConfigFormTest {
                     url = "  ws://127.0.0.1:6701  ",
                     accessToken = " token ",
                     name = " 主连接 ",
+                    enabled = true,
                 ),
             ),
         )
@@ -123,6 +124,7 @@ class OneBotConfigFormTest {
                     url = "ws://127.0.0.1:6701",
                     accessToken = "token",
                     name = "主连接",
+                    enabled = true,
                 ),
             ),
             config.enabledConnections(),
