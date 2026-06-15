@@ -1,9 +1,12 @@
 package top.colter.dynamic.onebot
 
 import cn.evole.onebot.client.OneBotClient
+import cn.evole.onebot.client.connection.WSClient
 import cn.evole.onebot.client.core.Bot
 import cn.evole.onebot.client.core.BotConfig
+import cn.evole.onebot.sdk.websocket.handshake.ServerHandshake
 import com.google.gson.JsonArray
+import java.net.URI
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import top.colter.dynamic.core.plugin.MessageSinkRouteState
@@ -196,8 +199,13 @@ internal class ForwardWsOneBotGateway(
         val currentClient = client
         if (currentClient == null || !currentClient.isOpenForAction()) {
             recordUnavailable()
-            markUnavailable("OneBot 正向连接未连接", warnWhenAccountUnknown = false)
-            rebuildClientIfDue()
+            val reason = reconnectSuspendedReason
+                ?: lastConnectionFailureReason
+                ?: "OneBot 正向连接未连接"
+            markUnavailable(reason, warnWhenAccountUnknown = false)
+            if (reconnectSuspendedReason == null) {
+                rebuildClientIfDue()
+            }
             return account
         }
         if (current != null && current.state == MessageSinkRouteState.READY) {
@@ -233,11 +241,13 @@ internal class ForwardWsOneBotGateway(
 
     private fun ForwardConnection.rebuildClientIfDue() {
         if (closing) return
+        if (reconnectSuspendedReason != null) return
         val handler = incomingMessageHandler ?: return
         if (!config.reconnect) return
 
         synchronized(rebuildLock) {
             if (closing) return
+            if (reconnectSuspendedReason != null) return
             val now = nowMillis()
             recordUnavailable(now)
             val nextReconnectAt = nextClientRebuildAt
@@ -276,7 +286,43 @@ internal class ForwardWsOneBotGateway(
                     knownAccountId()
                 },
             ),
-        ).open()
+        ).openObserved(this)
+    }
+
+    private fun OneBotClient.openObserved(
+        connection: ForwardConnection,
+    ): OneBotClient {
+        val uri = runCatching {
+            URI.create(connection.url)
+        }.getOrElse {
+            connection.recordClientOpenFailure(it)
+            return this
+        }
+        val ws = ObservedForwardWsClient(
+            client = this,
+            uri = uri,
+            accessToken = connection.accessToken,
+            onOpenObserved = {
+                connection.recordWebSocketOpen()
+            },
+            onCloseObserved = { code, reason, remote ->
+                connection.recordWebSocketClose(code, reason, remote)
+            },
+            onErrorObserved = { error ->
+                connection.recordWebSocketError(error)
+            },
+        )
+        connection.webSocketOpened = false
+        setPrivateField("ws", ws)
+        wsPool.execute {
+            runCatching {
+                ws.connect()
+                setPrivateField("bot", ws.createBot())
+            }.onFailure {
+                connection.recordClientOpenFailure(it)
+            }
+        }
+        return this
     }
 
     private fun ForwardConnection.recordUnavailable(now: Long = nowMillis()) {
@@ -295,6 +341,8 @@ internal class ForwardWsOneBotGateway(
         unavailableSinceAt = null
         reconnectAttempts = 0
         nextClientRebuildAt = 0L
+        lastConnectionFailureReason = null
+        reconnectSuspendedReason = null
     }
 
     private fun reconnectDelayMillis(completedAttempts: Int): Long {
@@ -309,6 +357,66 @@ internal class ForwardWsOneBotGateway(
         } else {
             logger.info { message }
         }
+    }
+
+    private fun ForwardConnection.recordWebSocketOpen() {
+        webSocketOpened = true
+        lastConnectionFailureReason = null
+        reconnectSuspendedReason = null
+    }
+
+    private fun ForwardConnection.recordWebSocketClose(code: Int, reason: String, remote: Boolean): Boolean {
+        val authFailure = oneBotForwardAuthenticationFailureReason(
+            code = code,
+            reason = reason,
+            beforeOpen = !webSocketOpened,
+        )
+        if (authFailure != null) {
+            suspendReconnectForAuthenticationFailure(authFailure)
+            return true
+        }
+
+        if (reason.isNotBlank()) {
+            lastConnectionFailureReason = "OneBot 正向连接已关闭：code=$code，reason=$reason，remote=$remote"
+        }
+        return false
+    }
+
+    private fun ForwardConnection.recordWebSocketError(error: Exception): Boolean {
+        val authFailure = oneBotForwardAuthenticationFailureReason(error)
+        if (authFailure != null) {
+            suspendReconnectForAuthenticationFailure(authFailure)
+            return true
+        }
+
+        lastConnectionFailureReason = error.message
+            ?.takeIf { it.isNotBlank() }
+            ?.let { "OneBot 正向连接错误：$it" }
+            ?: "OneBot 正向连接错误：${error.javaClass.simpleName}"
+        return false
+    }
+
+    private fun ForwardConnection.recordClientOpenFailure(error: Throwable) {
+        val authFailure = oneBotForwardAuthenticationFailureReason(error)
+        if (authFailure != null) {
+            suspendReconnectForAuthenticationFailure(authFailure)
+            return
+        }
+        lastConnectionFailureReason = error.message
+            ?.takeIf { it.isNotBlank() }
+            ?.let { "OneBot 正向连接启动失败：$it" }
+            ?: "OneBot 正向连接启动失败：${error.javaClass.simpleName}"
+        markUnavailable(lastConnectionFailureReason.orEmpty(), error, warnWhenAccountUnknown = true)
+    }
+
+    private fun ForwardConnection.suspendReconnectForAuthenticationFailure(reason: String) {
+        val message = "OneBot 正向连接鉴权失败：connectionId=$connectionId，name=${name.ifBlank { "-" }}，url=$url，原因=$reason。请检查这里填写的 Token 是否与 OneBot 客户端 access_token 一致；如果客户端未启用 Token，请将这里留空。已暂停该连接的自动重连，修改配置并重启插件后会重新连接。"
+        if (reconnectSuspendedReason != message) {
+            logger.warn { message }
+        }
+        reconnectSuspendedReason = message
+        lastConnectionFailureReason = message
+        nextClientRebuildAt = Long.MAX_VALUE
     }
 
     private fun Long.formatDelay(): String {
@@ -398,6 +506,15 @@ internal class ForwardWsOneBotGateway(
         return runCatching { ws?.isOpen == true }.getOrDefault(false)
     }
 
+    private fun Any.setPrivateField(name: String, value: Any?) {
+        val field = generateSequence(javaClass as Class<*>?) { it.superclass }
+            .mapNotNull { type -> runCatching { type.getDeclaredField(name) }.getOrNull() }
+            .firstOrNull()
+            ?: error("OneBot Client 字段不存在：$name")
+        field.isAccessible = true
+        field.set(this, value)
+    }
+
     private fun closeClientQuickly(connection: ForwardConnection, client: OneBotClient?) {
         if (client == null) return
         runCatching {
@@ -443,7 +560,48 @@ internal class ForwardWsOneBotGateway(
         var lastIdentifyFailureLogAt: Long = 0L,
         @Volatile
         var lastIdentifyFailureKey: String? = null,
+        @Volatile
+        var lastConnectionFailureReason: String? = null,
+        @Volatile
+        var reconnectSuspendedReason: String? = null,
+        @Volatile
+        var webSocketOpened: Boolean = false,
     )
+
+    private class ObservedForwardWsClient(
+        client: OneBotClient,
+        uri: URI,
+        accessToken: String,
+        private val onOpenObserved: () -> Unit,
+        private val onCloseObserved: (code: Int, reason: String, remote: Boolean) -> Boolean,
+        private val onErrorObserved: (Exception) -> Boolean,
+    ) : WSClient(client, uri) {
+
+        init {
+            val trimmedToken = accessToken.trim()
+            if (trimmedToken.isNotEmpty()) {
+                removeHeader("Authorization")
+                addHeader("Authorization", "Bearer $trimmedToken")
+            }
+        }
+
+        override fun onOpen(handshakedata: ServerHandshake) {
+            onOpenObserved()
+            super.onOpen(handshakedata)
+        }
+
+        override fun onClose(code: Int, reason: String, remote: Boolean) {
+            if (!onCloseObserved(code, reason, remote)) {
+                super.onClose(code, reason, remote)
+            }
+        }
+
+        override fun onError(ex: Exception) {
+            if (!onErrorObserved(ex)) {
+                super.onError(ex)
+            }
+        }
+    }
 
     private companion object {
         private const val DEFAULT_SDK_RECONNECT_INTERVAL_SECONDS: Int = 5
@@ -461,3 +619,68 @@ internal class ForwardWsOneBotGateway(
         )
     }
 }
+
+internal fun oneBotForwardAuthenticationFailureReason(error: Throwable): String? {
+    val text = error.diagnosticText()
+    return oneBotForwardAuthenticationFailureReason(text)
+}
+
+internal fun oneBotForwardAuthenticationFailureReason(
+    code: Int,
+    reason: String,
+    beforeOpen: Boolean = true,
+): String? {
+    val text = "code=$code reason=$reason"
+    if (reason.isBlank()) {
+        return if (beforeOpen && code in AUTH_FAILURE_CLOSE_CODES) {
+            "WebSocket 连接在鉴权阶段被服务端关闭：code=$code"
+        } else {
+            null
+        }
+    }
+    return oneBotForwardAuthenticationFailureReason(text)
+}
+
+private fun oneBotForwardAuthenticationFailureReason(text: String): String? {
+    val normalized = text.lowercase()
+    val matched = AUTH_FAILURE_KEYWORDS.any { it in normalized } ||
+        HTTP_AUTH_STATUS_PATTERN.containsMatchIn(normalized)
+    if (!matched) return null
+
+    return text
+        .replace(Regex("\\s+"), " ")
+        .trim()
+        .ifBlank { "服务端拒绝 WebSocket 鉴权" }
+        .take(MAX_FAILURE_REASON_LENGTH)
+}
+
+private fun Throwable.diagnosticText(): String {
+    return generateSequence(this) { it.cause }
+        .joinToString(" | ") { throwable ->
+            listOfNotNull(
+                throwable.javaClass.simpleName,
+                throwable.message?.takeIf { it.isNotBlank() },
+                throwable.localizedMessage?.takeIf { it.isNotBlank() && it != throwable.message },
+            ).joinToString(": ")
+        }
+}
+
+private val AUTH_FAILURE_KEYWORDS: List<String> = listOf(
+    "unauthorized",
+    "forbidden",
+    "authentication",
+    "authorization",
+    "access token",
+    "invalid token",
+    "token invalid",
+    "token",
+    "鉴权",
+    "认证",
+    "未授权",
+    "无权限",
+    "令牌",
+)
+
+private val HTTP_AUTH_STATUS_PATTERN: Regex = Regex("""\b(?:401|403)\b""")
+private val AUTH_FAILURE_CLOSE_CODES: Set<Int> = setOf(1008)
+private const val MAX_FAILURE_REASON_LENGTH: Int = 180

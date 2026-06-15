@@ -15,6 +15,8 @@ import kotlinx.coroutines.withTimeout
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class OneBotGatewayTest {
@@ -36,6 +38,50 @@ class OneBotGatewayTest {
         withTimeout(1_000) {
             gateway.close()
         }
+    }
+
+    @Test
+    fun `forward auth failure classifier should detect websocket handshake rejection`() {
+        val error = IllegalStateException(
+            "Invalid status code received: 401 Status line: HTTP/1.1 401 Unauthorized",
+        )
+
+        val reason = oneBotForwardAuthenticationFailureReason(error)
+
+        assertNotNull(reason)
+        assertTrue(reason.contains("401"))
+    }
+
+    @Test
+    fun `forward auth failure classifier should detect unauthorized close reason`() {
+        val reason = oneBotForwardAuthenticationFailureReason(1008, "unauthorized")
+
+        assertNotNull(reason)
+        assertTrue(reason.contains("unauthorized"))
+    }
+
+    @Test
+    fun `forward auth failure classifier should detect blank policy close before open`() {
+        val reason = oneBotForwardAuthenticationFailureReason(1008, "", beforeOpen = true)
+
+        assertNotNull(reason)
+        assertTrue(reason.contains("1008"))
+    }
+
+    @Test
+    fun `forward auth failure classifier should ignore blank policy close after open`() {
+        val reason = oneBotForwardAuthenticationFailureReason(1008, "", beforeOpen = false)
+
+        assertNull(reason)
+    }
+
+    @Test
+    fun `forward auth failure classifier should ignore normal network failure`() {
+        val reason = oneBotForwardAuthenticationFailureReason(
+            java.net.ConnectException("Connection refused: connect"),
+        )
+
+        assertNull(reason)
     }
 
     @Test
