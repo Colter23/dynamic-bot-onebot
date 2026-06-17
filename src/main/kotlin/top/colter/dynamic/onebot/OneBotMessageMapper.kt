@@ -17,11 +17,14 @@ public sealed interface OneBotSendUnit {
 }
 
 public object OneBotMessageMapper {
-    public fun toSendUnits(message: Message): List<OneBotSendUnit> {
-        return toSendUnits(message.batches)
+    public fun toSendUnits(message: Message, forwardSenderUin: String? = null): List<OneBotSendUnit> {
+        return toSendUnits(message.batches, forwardSenderUin)
     }
 
-    public fun toSendUnits(batches: List<MessageBatch>): List<OneBotSendUnit> {
+    public fun toSendUnits(
+        batches: List<MessageBatch>,
+        forwardSenderUin: String? = null,
+    ): List<OneBotSendUnit> {
         val units = mutableListOf<OneBotSendUnit>()
         val normalBatches = mutableListOf<MessageBatch>()
 
@@ -48,7 +51,7 @@ public object OneBotMessageMapper {
                     is MessageContent.Forward -> {
                         flushBatch()
                         flushNormal()
-                        units += OneBotSendUnit.Forward(content.toOneBotForwardNodes())
+                        units += OneBotSendUnit.Forward(content.toOneBotForwardNodes(forwardSenderUin))
                     }
                     else -> current += content
                 }
@@ -156,13 +159,13 @@ public object OneBotMessageMapper {
         return result
     }
 
-    private fun MessageContent.Forward.toOneBotForwardNodes(): List<Map<String, Any>> {
+    private fun MessageContent.Forward.toOneBotForwardNodes(forwardSenderUin: String?): List<Map<String, Any>> {
         return nodes.map { node ->
             mapOf(
                 "type" to "node",
                 "data" to buildMap<String, Any> {
                     put("name", node.senderName)
-                    put("uin", node.senderId)
+                    put("uin", forwardSenderUin?.trim()?.takeIf { it.isNotBlank() } ?: node.senderId)
                     put("content", toJsonArrayMessage(node.batches))
                     put("time", node.time)
                 },

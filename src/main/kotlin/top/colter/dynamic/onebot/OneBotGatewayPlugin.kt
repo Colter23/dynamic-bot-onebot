@@ -146,7 +146,7 @@ public class OneBotGatewayPlugin :
         }
 
         val message = request.message
-        val units = OneBotMessageMapper.toSendUnits(message)
+        val units = OneBotMessageMapper.toSendUnits(message, forwardSenderUin = accountId)
 
         return when (val target = OneBotTarget.fromAddress(request.target)) {
             is OneBotTarget.Group -> sendUnits(
@@ -188,7 +188,7 @@ public class OneBotGatewayPlugin :
             return MessageSendResult.failed("OneBot 账号不可用：$accountId")
         }
 
-        val units = OneBotMessageMapper.toSendUnits(request.chain)
+        val units = OneBotMessageMapper.toSendUnits(request.chain, forwardSenderUin = accountId)
         return when (val target = OneBotTarget.fromAddress(request.target.address)) {
             is OneBotTarget.Group -> sendUnits(
                 routeId = routeId,

@@ -211,7 +211,7 @@ class OneBotMessageMapperTest {
             ),
         )
 
-        val units = OneBotMessageMapper.toSendUnits(message)
+        val units = OneBotMessageMapper.toSendUnits(message, forwardSenderUin = "99887766")
 
         assertEquals(3, units.size)
         assertEquals("before", assertIs<OneBotSendUnit.Normal>(units[0]).message[0].asJsonObject["data"].asJsonObject["text"].asString)
@@ -220,7 +220,7 @@ class OneBotMessageMapperTest {
         assertEquals("node", node["type"])
         val data = assertIs<Map<*, *>>(node["data"])
         assertEquals("Demo UP", data["name"])
-        assertEquals("123", data["uin"])
+        assertEquals("99887766", data["uin"])
         assertEquals(1_710_000_000L, data["time"])
         val content = assertIs<com.google.gson.JsonArray>(data["content"])
         assertEquals("image", content[0].asJsonObject["type"].asString)
@@ -229,6 +229,39 @@ class OneBotMessageMapperTest {
         assertEquals("file:///tmp/video.mp4", content[1].asJsonObject["data"].asJsonObject["file"].asString)
         assertEquals("node text", content[2].asJsonObject["data"].asJsonObject["text"].asString)
         assertEquals("after", assertIs<OneBotSendUnit.Normal>(units[2]).message[0].asJsonObject["data"].asJsonObject["text"].asString)
+    }
+
+    @Test
+    fun `use sender account id as merged forward uin when provided`() {
+        val message = Message(
+            id = "forward-large-uid",
+            time = 1,
+            targets = listOf(demoTarget(TargetKind.GROUP, "123456")),
+            batches = listOf(
+                MessageBatch(
+                    listOf(
+                        MessageContent.Forward(
+                            fallbackText = "[合并转发] Long UID",
+                            title = "原始内容",
+                            summary = "共 1 条内容",
+                            sourceName = "Long UID",
+                            nodes = listOf(
+                                ForwardNode(
+                                    senderId = "3546838751775383",
+                                    senderName = "Long UID",
+                                    time = 1_710_000_000,
+                                    batches = listOf(MessageBatch(listOf(MessageContent.Text("node text")))),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        val forward = assertIs<OneBotSendUnit.Forward>(OneBotMessageMapper.toSendUnits(message, forwardSenderUin = "123456789").single())
+        val data = assertIs<Map<*, *>>(forward.messages.single()["data"])
+        assertEquals("123456789", data["uin"])
     }
 
     private fun demoMessage(contents: List<MessageContent>): Message {
