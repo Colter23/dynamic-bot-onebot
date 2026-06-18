@@ -74,55 +74,120 @@ internal class OneBotIncomingListener(
         return when (type) {
             MsgType.text -> data?.get("text").orEmpty()
             MsgType.at -> data?.get("qq")?.let { if (it == "all") "@all" else "@$it" }.orEmpty()
+            MsgType.json -> CardParser.parseJson(data?.get("data").orEmpty())?.url.orEmpty()
+            MsgType.xml -> CardParser.parseXml(data?.get("data").orEmpty())?.url.orEmpty()
             else -> ""
         }
     }
 
     private fun MessageEvent.toIncomingSegments(): List<IncomingMessageSegment> {
-        val fromArray = arrayMsg.orEmpty().map { it.toIncomingSegment() }
+        val fromArray = arrayMsg.orEmpty().flatMap { it.toIncomingSegments() }
         if (fromArray.isNotEmpty()) return fromArray
         return rawMessage?.takeIf { it.isNotBlank() }?.toIncomingSegmentsFromCq()
             ?: message?.takeIf { it.isNotBlank() }?.toIncomingSegmentsFromCq()
             ?: emptyList()
     }
 
-    private fun ArrayMsg.toIncomingSegment(): IncomingMessageSegment {
+    private fun ArrayMsg.toIncomingSegments(): List<IncomingMessageSegment> {
         val segmentRaw = toRawPayload()
         val values = data.orEmpty()
         return when (type) {
-            MsgType.text -> IncomingMessageSegment.Text(
-                text = values["text"].orEmpty(),
-                rawPayload = segmentRaw,
+            MsgType.text -> listOf(
+                IncomingMessageSegment.Text(
+                    text = values["text"].orEmpty(),
+                    rawPayload = segmentRaw,
+                ),
             )
-            MsgType.at -> IncomingMessageSegment.Mention(
-                targetId = values["qq"].orEmpty(),
-                all = values["qq"] == "all",
-                rawPayload = segmentRaw,
+            MsgType.at -> listOf(
+                IncomingMessageSegment.Mention(
+                    targetId = values["qq"].orEmpty(),
+                    all = values["qq"] == "all",
+                    rawPayload = segmentRaw,
+                ),
             )
-            MsgType.image -> IncomingMessageSegment.Image(
-                file = values["file"].orEmpty(),
-                url = values["url"],
-                rawPayload = segmentRaw,
+            MsgType.image -> listOf(
+                IncomingMessageSegment.Image(
+                    file = values["file"].orEmpty(),
+                    url = values["url"],
+                    rawPayload = segmentRaw,
+                ),
             )
-            MsgType.video -> IncomingMessageSegment.Video(
-                file = values["file"].orEmpty(),
-                url = values["url"],
-                rawPayload = segmentRaw,
+            MsgType.video -> listOf(
+                IncomingMessageSegment.Video(
+                    file = values["file"].orEmpty(),
+                    url = values["url"],
+                    rawPayload = segmentRaw,
+                ),
             )
-            MsgType.record -> IncomingMessageSegment.Audio(
-                file = values["file"].orEmpty(),
-                url = values["url"],
-                rawPayload = segmentRaw,
+            MsgType.record -> listOf(
+                IncomingMessageSegment.Audio(
+                    file = values["file"].orEmpty(),
+                    url = values["url"],
+                    rawPayload = segmentRaw,
+                ),
             )
-            MsgType.reply -> IncomingMessageSegment.Reply(
-                messageId = values["id"].orEmpty(),
-                rawPayload = segmentRaw,
+            MsgType.reply -> listOf(
+                IncomingMessageSegment.Reply(
+                    messageId = values["id"].orEmpty(),
+                    rawPayload = segmentRaw,
+                ),
             )
-            else -> IncomingMessageSegment.Unknown(
-                segmentType = type.name,
-                rawPayload = segmentRaw,
+            MsgType.json -> CardParser.parseJson(values["data"].orEmpty())
+                ?.toIncomingSegments(rawPayload = segmentRaw)
+                ?: listOf(
+                    IncomingMessageSegment.Unknown(
+                        segmentType = type.name,
+                        rawPayload = segmentRaw,
+                    ),
+                )
+            MsgType.xml -> CardParser.parseXml(values["data"].orEmpty())
+                ?.toIncomingSegments(rawPayload = segmentRaw)
+                ?: listOf(
+                    IncomingMessageSegment.Unknown(
+                        segmentType = type.name,
+                        rawPayload = segmentRaw,
+                    ),
+                )
+            else -> listOf(
+                IncomingMessageSegment.Unknown(
+                    segmentType = type.name,
+                    rawPayload = segmentRaw,
+                ),
             )
         }
+    }
+
+    private fun CardParseResult.toIncomingSegments(rawPayload: String): List<IncomingMessageSegment> {
+        val segments = mutableListOf<IncomingMessageSegment>()
+        val summary = buildString {
+            append("[卡片]")
+            if (!title.isNullOrBlank()) {
+                append(" ")
+                append(title)
+            }
+            if (!description.isNullOrBlank()) {
+                if (length > 4) append("：")
+                append(description)
+            }
+            if (!url.isNullOrBlank()) {
+                if (isNotBlank()) append("\n")
+                append(url)
+            }
+        }
+        if (summary.isNotBlank()) {
+            segments += IncomingMessageSegment.Text(
+                text = summary,
+                rawPayload = rawPayload,
+            )
+        }
+        if (!previewUrl.isNullOrBlank()) {
+            segments += IncomingMessageSegment.Image(
+                file = "",
+                url = previewUrl,
+                rawPayload = rawPayload,
+            )
+        }
+        return segments
     }
 
     private fun ArrayMsg.toRawPayload(): String {
@@ -154,11 +219,24 @@ internal class OneBotIncomingListener(
     }
 
     private fun String.toPlainCqText(): String {
-        return replace(CQ_AT_REGEX) { match ->
+        val cardUrls = this.extractCardUrlsFromCq()
+        val body = replace(CQ_AT_REGEX) { match ->
             val target = match.groupValues[1].cqParamUnescape().trim()
             if (target == "all") "@all" else "@$target"
         }.replace(CQ_CODE_REGEX, "")
             .cqTextUnescape()
+        return if (cardUrls.isBlank()) body else "$body $cardUrls".trim()
+    }
+
+    private fun String.extractCardUrlsFromCq(): String {
+        val urls = mutableListOf<String>()
+        CQ_JSON_REGEX.findAll(this).forEach { match ->
+            CardParser.parseJson(match.groupValues[1].cqParamUnescape())?.url?.let { urls += it }
+        }
+        CQ_XML_REGEX.findAll(this).forEach { match ->
+            CardParser.parseXml(match.groupValues[1].cqParamUnescape())?.url?.let { urls += it }
+        }
+        return urls.joinToString(" ")
     }
 
     private fun String.toIncomingSegmentsFromCq(): List<IncomingMessageSegment> {
@@ -173,7 +251,19 @@ internal class OneBotIncomingListener(
             }
             val type = match.groupValues[1]
             val data = parseCqData(match.groupValues[2])
-            segments += cqSegment(type, data, match.value)
+            when (type.lowercase()) {
+                "json" -> segments += cardSegments(
+                    type = "json",
+                    parse = { CardParser.parseJson(data["data"].orEmpty()) },
+                    raw = match.value,
+                )
+                "xml" -> segments += cardSegments(
+                    type = "xml",
+                    parse = { CardParser.parseXml(data["data"].orEmpty()) },
+                    raw = match.value,
+                )
+                else -> segments += cqSegment(type, data, match.value)
+            }
             cursor = match.range.last + 1
         }
         if (cursor < length) {
@@ -183,6 +273,20 @@ internal class OneBotIncomingListener(
             }
         }
         return segments.ifEmpty { listOf(IncomingMessageSegment.Text(cqTextUnescape())) }
+    }
+
+    private fun cardSegments(
+        type: String,
+        parse: () -> CardParseResult?,
+        raw: String,
+    ): List<IncomingMessageSegment> {
+        return parse()?.toIncomingSegments(rawPayload = raw)
+            ?: listOf(
+                IncomingMessageSegment.Unknown(
+                    segmentType = type,
+                    rawPayload = raw,
+                ),
+            )
     }
 
     private fun parseCqData(rawParams: String): Map<String, String> {
@@ -249,5 +353,7 @@ internal class OneBotIncomingListener(
         val CQ_AT_REGEX: Regex = Regex("""\[CQ:at,[^\]]*qq=([^,\]]+)[^\]]*]""")
         val CQ_CODE_REGEX: Regex = Regex("""\[CQ:[^\]]+]""")
         val CQ_SEGMENT_REGEX: Regex = Regex("""\[CQ:([a-zA-Z0-9_]+)((?:,[^\]]*)?)]""")
+        val CQ_JSON_REGEX: Regex = Regex("""\[CQ:json,data=([^\]]+)]""")
+        val CQ_XML_REGEX: Regex = Regex("""\[CQ:xml,data=([^\]]+)]""")
     }
 }

@@ -172,6 +172,56 @@ class OneBotIncomingListenerTest {
     }
 
     @Test
+    fun `json card should be parsed into text and image segments`() {
+        var captured: OneBotIncomingMessage? = null
+        val listener = OneBotIncomingListener(onIncomingMessage = { captured = it })
+
+        listener.onGroupMessage(
+            GroupMessageEvent().apply {
+                groupId = 1L
+                userId = 2L
+                arrayMsg = listOf(
+                    segment(
+                        MsgType.json,
+                        "data" to """{"prompt":"[QQ小程序]这种情况还有救吗？","app":"com.tencent.miniapp_01","meta":{"detail_1":{"title":"哔哩哔哩","desc":"这种情况还有救吗？","preview":"https://example.com/preview.jpg","qqdocurl":"https://b23.tv/WWPVz9i","url":"m.q.qq.com/a/s/3f7d1b042088a4e6b3befb380d0f618d"}}}""",
+                    ),
+                )
+            }
+        )
+
+        val segments = requireNotNull(captured).segments
+        assertEquals(2, segments.size)
+        val text = assertIs<IncomingMessageSegment.Text>(segments[0])
+        assertTrue(text.text.contains("哔哩哔哩"), "text should contain title: ${text.text}")
+        assertTrue(text.text.contains("这种情况还有救吗？"), "text should contain desc: ${text.text}")
+        assertTrue(text.text.contains("https://b23.tv/WWPVz9i"), "text should contain url: ${text.text}")
+        val image = assertIs<IncomingMessageSegment.Image>(segments[1])
+        assertEquals("https://example.com/preview.jpg", image.url)
+    }
+
+    @Test
+    fun `json card url should appear in command text`() {
+        var captured: OneBotIncomingMessage? = null
+        val listener = OneBotIncomingListener(onIncomingMessage = { captured = it })
+
+        listener.onGroupMessage(
+            GroupMessageEvent().apply {
+                groupId = 1L
+                userId = 2L
+                arrayMsg = listOf(
+                    segment(
+                        MsgType.json,
+                        "data" to """{"meta":{"detail_1":{"title":"B站","qqdocurl":"https://b23.tv/abc123"}}}""",
+                    ),
+                )
+            }
+        )
+
+        val incoming = requireNotNull(captured)
+        assertTrue(incoming.text.contains("https://b23.tv/abc123"), "command text should contain url: ${incoming.text}")
+    }
+
+    @Test
     fun `raw cq message should map known and unknown incoming segments`() {
         var captured: OneBotIncomingMessage? = null
         val listener = OneBotIncomingListener(onIncomingMessage = { captured = it })
