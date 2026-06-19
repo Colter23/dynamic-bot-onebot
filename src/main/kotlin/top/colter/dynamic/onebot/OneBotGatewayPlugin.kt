@@ -7,7 +7,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
-import top.colter.dynamic.core.command.CommandPublisher
 import top.colter.dynamic.core.config.ConfigApplyResult
 import top.colter.dynamic.core.config.ConfigurablePlugin
 import top.colter.dynamic.core.config.loadOrCreate
@@ -16,6 +15,7 @@ import top.colter.dynamic.core.data.TargetAddress
 import top.colter.dynamic.core.data.TargetKind
 import top.colter.dynamic.core.plugin.AccountRoutedMessageSinkPlugin
 import top.colter.dynamic.core.plugin.CommandResultSendRequest
+import top.colter.dynamic.core.plugin.IncomingMessagePublishRequest
 import top.colter.dynamic.core.plugin.IncomingMessagePublisher
 import top.colter.dynamic.core.plugin.MessageDeliveryRequest
 import top.colter.dynamic.core.plugin.MessageRecallRequest
@@ -47,7 +47,6 @@ public class OneBotGatewayPlugin :
     private var pluginId: String = ONEBOT_PLUGIN_ID
     private var config: OneBotConfig = OneBotConfig()
     private var gateway: OneBotGateway = NoopOneBotGateway()
-    private lateinit var commandPublisher: CommandPublisher
     private var incomingMessagePublisher: IncomingMessagePublisher = IncomingMessagePublisher { }
     private lateinit var pluginScope: CoroutineScope
     private var incomingScope: CoroutineScope? = null
@@ -69,7 +68,6 @@ public class OneBotGatewayPlugin :
 
     override suspend fun onLoad(context: PluginContext) {
         pluginId = context.pluginId
-        commandPublisher = context.commandPublisher
         incomingMessagePublisher = context.incomingMessagePublisher
         pluginScope = context.scope
         config = context.configService.loadOrCreate(pluginId, OneBotConfigForm.migrations) { OneBotConfig() }
@@ -188,7 +186,11 @@ public class OneBotGatewayPlugin :
             return MessageSendResult.failed("OneBot 账号不可用：$accountId")
         }
 
-        val units = OneBotMessageMapper.toSendUnits(request.chain, forwardSenderUin = accountId)
+        val units = OneBotMessageMapper.toSendUnits(
+            batches = request.chain,
+            forwardSenderUin = accountId,
+            replyToMessageId = request.inReplyTo,
+        )
         return when (val target = OneBotTarget.fromAddress(request.target.address)) {
             is OneBotTarget.Group -> sendUnits(
                 routeId = routeId,
@@ -470,30 +472,23 @@ public class OneBotGatewayPlugin :
     private fun onIncomingMessage(incoming: OneBotIncomingMessage) {
         if (!running) return
 
-        val commandRequest = OneBotCommandMapper.toCommandRequest(
-            sourcePlugin = pluginId,
-            incoming = incoming,
-        )
         val incomingMessage = OneBotCommandMapper.toIncomingMessage(incoming)
 
         val scope = incomingScope ?: return
         scope.launch {
             if (!running) return@launch
             runCatching {
-                incomingMessagePublisher.publish(incomingMessage)
+                incomingMessagePublisher.publish(
+                    IncomingMessagePublishRequest(
+                        message = incomingMessage,
+                        traceId = incoming.messageId,
+                        replyToMessageId = incoming.messageId,
+                    ),
+                )
             }.onFailure { error ->
                 if (error is CancellationException) throw error
                 logger.warn(error) {
                     "OneBot 入站消息提交失败：messageId=${incoming.messageId.ifBlank { "-" }}"
-                }
-            }
-            if (commandRequest != null) {
-                try {
-                    commandPublisher.publish(commandRequest)
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Throwable) {
-                    logger.warn(e) { "OneBot 命令事件提交失败：traceId=${commandRequest.traceId}" }
                 }
             }
         }

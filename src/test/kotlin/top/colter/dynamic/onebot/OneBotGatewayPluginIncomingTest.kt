@@ -13,19 +13,18 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
-import top.colter.dynamic.core.command.CommandPublishRequest
-import top.colter.dynamic.core.command.CommandPublisher
 import top.colter.dynamic.core.data.IncomingMessage
+import top.colter.dynamic.core.plugin.IncomingMessagePublishRequest
 import top.colter.dynamic.core.plugin.IncomingMessagePublisher
 
 class OneBotGatewayPluginIncomingTest {
     @Test
-    fun `incoming command should publish asynchronously`() = runBlocking {
+    fun `incoming text message should publish asynchronously`() = runBlocking {
         val plugin = OneBotGatewayPlugin()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val publishStarted = CompletableDeferred<Unit>()
         val releasePublish = CompletableDeferred<Unit>()
-        val published = CompletableDeferred<CommandPublishRequest>()
+        val published = CompletableDeferred<IncomingMessagePublishRequest>()
         plugin.prepareIncomingTest(scope) { request ->
             publishStarted.complete(Unit)
             releasePublish.await()
@@ -43,7 +42,10 @@ class OneBotGatewayPluginIncomingTest {
             assertFalse(published.isCompleted)
 
             releasePublish.complete(Unit)
-            assertEquals("/db status", withTimeout(500) { published.await() }.rawText)
+            val request = withTimeout(500) { published.await() }
+            assertEquals("message-1", request.traceId)
+            assertEquals("message-1", request.replyToMessageId)
+            assertEquals("/db status", request.message.text)
         } finally {
             plugin.callPrivate("stopIncomingScope")
             scope.cancel()
@@ -51,15 +53,13 @@ class OneBotGatewayPluginIncomingTest {
     }
 
     @Test
-    fun `incoming non command message should publish incoming event only`() = runBlocking {
+    fun `incoming blank text message should still publish incoming event`() = runBlocking {
         val plugin = OneBotGatewayPlugin()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        val publishedCommand = CompletableDeferred<CommandPublishRequest>()
-        val publishedIncoming = CompletableDeferred<IncomingMessage>()
+        val publishedIncoming = CompletableDeferred<IncomingMessagePublishRequest>()
         plugin.prepareIncomingTest(
             scope = scope,
-            publishCommand = { request -> publishedCommand.complete(request) },
-            publishIncoming = { message -> publishedIncoming.complete(message) },
+            publishIncoming = { request -> publishedIncoming.complete(request) },
         )
 
         try {
@@ -76,10 +76,9 @@ class OneBotGatewayPluginIncomingTest {
                 )
             )
 
-            val incoming = withTimeout(500) { publishedIncoming.await() }
+            val incoming = withTimeout(500) { publishedIncoming.await() }.message
             assertEquals("321", incoming.messageId)
             assertEquals("", incoming.text)
-            assertNull(withTimeoutOrNull(200) { publishedCommand.await() })
         } finally {
             plugin.callPrivate("stopIncomingScope")
             scope.cancel()
@@ -90,7 +89,7 @@ class OneBotGatewayPluginIncomingTest {
     fun `incoming command should be ignored after stop`() = runBlocking {
         val plugin = OneBotGatewayPlugin()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        val published = CompletableDeferred<CommandPublishRequest>()
+        val published = CompletableDeferred<IncomingMessagePublishRequest>()
         plugin.prepareIncomingTest(scope) { request ->
             published.complete(request)
         }
@@ -109,13 +108,11 @@ class OneBotGatewayPluginIncomingTest {
 
     private fun OneBotGatewayPlugin.prepareIncomingTest(
         scope: CoroutineScope,
-        publishIncoming: suspend (IncomingMessage) -> Unit = {},
-        publishCommand: suspend (CommandPublishRequest) -> Unit,
+        publishIncoming: suspend (IncomingMessagePublishRequest) -> Unit,
     ) {
         setPrivate("pluginId", ONEBOT_PLUGIN_ID)
         setPrivate("pluginScope", scope)
-        setPrivate("commandPublisher", CommandPublisher { request -> publishCommand(request) })
-        setPrivate("incomingMessagePublisher", IncomingMessagePublisher { message -> publishIncoming(message) })
+        setPrivate("incomingMessagePublisher", IncomingMessagePublisher { request -> publishIncoming(request) })
         callPrivate("startIncomingScope")
     }
 
@@ -126,6 +123,7 @@ class OneBotGatewayPluginIncomingTest {
             senderId = "67890",
             text = "/db status",
             botAccountId = "42",
+            messageId = "message-1",
             mentionedAccountIds = setOf("42"),
         )
     }

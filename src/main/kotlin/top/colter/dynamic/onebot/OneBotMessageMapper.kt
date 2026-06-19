@@ -17,20 +17,26 @@ public sealed interface OneBotSendUnit {
 }
 
 public object OneBotMessageMapper {
-    public fun toSendUnits(message: Message, forwardSenderUin: String? = null): List<OneBotSendUnit> {
-        return toSendUnits(message.batches, forwardSenderUin)
+    public fun toSendUnits(
+        message: Message,
+        forwardSenderUin: String? = null,
+        replyToMessageId: String? = null,
+    ): List<OneBotSendUnit> {
+        return toSendUnits(message.batches, forwardSenderUin, replyToMessageId)
     }
 
     public fun toSendUnits(
         batches: List<MessageBatch>,
         forwardSenderUin: String? = null,
+        replyToMessageId: String? = null,
     ): List<OneBotSendUnit> {
         val units = mutableListOf<OneBotSendUnit>()
         val normalBatches = mutableListOf<MessageBatch>()
+        val replyTo = replyToMessageId?.trim()?.takeIf { it.isNotBlank() }
 
         fun flushNormal() {
             if (normalBatches.isEmpty()) return
-            toJsonArrayMessages(normalBatches).forEach { payload ->
+            toJsonArrayMessages(withReply(normalBatches, replyTo)).forEach { payload ->
                 units += OneBotSendUnit.Normal(payload)
             }
             normalBatches.clear()
@@ -63,6 +69,15 @@ public object OneBotMessageMapper {
         return units.ifEmpty {
             listOf(OneBotSendUnit.Normal(toJsonArray(listOf(text(EMPTY_MESSAGE_TEXT)))))
         }
+    }
+
+    private fun withReply(batches: List<MessageBatch>, replyToMessageId: String?): List<MessageBatch> {
+        if (replyToMessageId.isNullOrBlank()) return batches
+        if (batches.any { batch -> batch.content.any { it is MessageContent.Reply } }) return batches
+        val first = batches.firstOrNull() ?: return listOf(MessageBatch(listOf(reply(replyToMessageId))))
+        return listOf(
+            first.copy(content = listOf(reply(replyToMessageId)) + first.content),
+        ) + batches.drop(1)
     }
 
     public fun toArrayMessage(message: Message): List<ArrayMsg> {
@@ -180,6 +195,11 @@ public object OneBotMessageMapper {
     }
 
     private fun text(value: String): ArrayMsg = segment(MsgType.text, "text" to value)
+
+    private fun reply(messageId: String): MessageContent.Reply = MessageContent.Reply(
+        fallbackText = "",
+        messageId = messageId,
+    )
 
     private fun segment(type: MsgType, vararg data: Pair<String, String>): ArrayMsg {
         return ArrayMsg()

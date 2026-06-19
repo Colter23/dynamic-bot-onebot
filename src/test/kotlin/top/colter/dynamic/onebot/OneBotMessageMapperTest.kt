@@ -92,6 +92,40 @@ class OneBotMessageMapperTest {
     }
 
     @Test
+    fun `format command result with reply target`() {
+        val units = OneBotMessageMapper.toSendUnits(
+            batches = listOf(MessageBatch(listOf(MessageContent.Text("pong")))),
+            replyToMessageId = "message-1",
+        )
+
+        val message = assertIs<OneBotSendUnit.Normal>(units.single()).message
+        assertEquals("reply", message[0].asJsonObject["type"].asString)
+        assertEquals("message-1", message[0].asJsonObject["data"].asJsonObject["id"].asString)
+        assertEquals("text", message[1].asJsonObject["type"].asString)
+        assertEquals("pong", message[1].asJsonObject["data"].asJsonObject["text"].asString)
+    }
+
+    @Test
+    fun `format command result should not duplicate existing reply segment`() {
+        val units = OneBotMessageMapper.toSendUnits(
+            batches = listOf(
+                MessageBatch(
+                    listOf(
+                        MessageContent.Reply(fallbackText = "", messageId = "explicit-reply"),
+                        MessageContent.Text("pong"),
+                    ),
+                ),
+            ),
+            replyToMessageId = "message-1",
+        )
+
+        val message = assertIs<OneBotSendUnit.Normal>(units.single()).message
+        assertEquals(2, message.size())
+        assertEquals("reply", message[0].asJsonObject["type"].asString)
+        assertEquals("explicit-reply", message[0].asJsonObject["data"].asJsonObject["id"].asString)
+    }
+
+    @Test
     fun `format multiple batches as separate array messages`() {
         val messages = OneBotMessageMapper.toArrayMessages(
             listOf(

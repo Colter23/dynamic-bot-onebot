@@ -1,8 +1,5 @@
 package top.colter.dynamic.onebot
 
-import java.util.UUID
-import top.colter.dynamic.core.command.CommandPublishRequest
-import top.colter.dynamic.core.data.CommandContext
 import top.colter.dynamic.core.data.IncomingMessage
 import top.colter.dynamic.core.data.IncomingMessageReference
 import top.colter.dynamic.core.data.IncomingMessageSegment
@@ -33,27 +30,6 @@ public object OneBotCommandMapper {
             rawFormat = incoming.rawFormat,
             rawPayload = incoming.rawPayload,
             mentions = incoming.mentionedAccountIds,
-        )
-    }
-
-    public fun toCommandRequest(
-        sourcePlugin: String,
-        incoming: OneBotIncomingMessage,
-    ): CommandPublishRequest? {
-        if (incoming.text.isBlank()) return null
-
-        return CommandPublishRequest(
-            sourcePlugin = sourcePlugin,
-            context = CommandContext.of(
-                platform = "qq",
-                kind = incoming.targetKind(),
-                externalId = incoming.chatId,
-                senderId = incoming.senderId,
-                botAccountId = incoming.botAccountId,
-                mentionedAccountIds = incoming.mentionedAccountIds,
-            ),
-            rawText = incoming.text,
-            traceId = UUID.randomUUID().toString(),
         )
     }
 

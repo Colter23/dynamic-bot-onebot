@@ -2,17 +2,15 @@ package top.colter.dynamic.onebot
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertNull
 import top.colter.dynamic.core.data.IncomingMessageSegment
 import top.colter.dynamic.core.data.TargetKind
 
 class OneBotCommandMapperTest {
 
     @Test
-    fun `should map group command input`() {
-        val request = OneBotCommandMapper.toCommandRequest(
-            sourcePlugin = ONEBOT_PLUGIN_ID,
-            incoming = OneBotIncomingMessage(
+    fun `should map group incoming message`() {
+        val message = OneBotCommandMapper.toIncomingMessage(
+            OneBotIncomingMessage(
                 chatType = OneBotChatType.GROUP,
                 chatId = "12345",
                 senderId = "67890",
@@ -22,22 +20,20 @@ class OneBotCommandMapperTest {
             ),
         )
 
-        requireNotNull(request)
-        assertEquals(ONEBOT_PLUGIN_ID, request.sourcePlugin)
-        assertEquals("qq", request.context.platform)
-        assertEquals(TargetKind.GROUP, request.context.chatType)
-        assertEquals("12345", request.context.chatId)
-        assertEquals("67890", request.context.senderId)
-        assertEquals("42", request.context.botAccountId)
-        assertEquals(setOf("42"), request.context.mentionedAccountIds)
-        assertEquals("/db status", request.rawText)
+        assertEquals("qq", message.platformId.value)
+        assertEquals(TargetKind.GROUP, message.target.kind)
+        assertEquals("12345", message.target.externalId)
+        assertEquals("42", message.target.accountId)
+        assertEquals("67890", message.senderId)
+        assertEquals("42", message.botAccountId)
+        assertEquals(setOf("42"), message.mentions)
+        assertEquals("/db status", message.text)
     }
 
     @Test
-    fun `should pass non command text to central command parser`() {
-        val request = OneBotCommandMapper.toCommandRequest(
-            sourcePlugin = ONEBOT_PLUGIN_ID,
-            incoming = OneBotIncomingMessage(
+    fun `should map private incoming message`() {
+        val message = OneBotCommandMapper.toIncomingMessage(
+            OneBotIncomingMessage(
                 chatType = OneBotChatType.PRIVATE,
                 chatId = "11",
                 senderId = "22",
@@ -45,24 +41,8 @@ class OneBotCommandMapperTest {
             ),
         )
 
-        requireNotNull(request)
-        assertEquals(TargetKind.USER, request.context.chatType)
-        assertEquals("hello", request.rawText)
-    }
-
-    @Test
-    fun `should ignore blank text`() {
-        val request = OneBotCommandMapper.toCommandRequest(
-            sourcePlugin = ONEBOT_PLUGIN_ID,
-            incoming = OneBotIncomingMessage(
-                chatType = OneBotChatType.PRIVATE,
-                chatId = "11",
-                senderId = "22",
-                text = "   ",
-            ),
-        )
-
-        assertNull(request)
+        assertEquals(TargetKind.USER, message.target.kind)
+        assertEquals("hello", message.text)
     }
 
     @Test
