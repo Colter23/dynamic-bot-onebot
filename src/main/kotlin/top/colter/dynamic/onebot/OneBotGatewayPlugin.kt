@@ -1,6 +1,7 @@
 package top.colter.dynamic.onebot
 
 import com.google.gson.JsonArray
+import java.security.MessageDigest
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -426,8 +427,11 @@ public class OneBotGatewayPlugin :
                 incomingMessagePublisher.publish(
                     IncomingMessagePublishRequest(
                         message = incomingMessage,
-                        traceId = incoming.messageId,
+                        traceId = incoming.traceId(),
                         replyToMessageId = incoming.messageId,
+                        receivedAtEpochSeconds = System.currentTimeMillis() / 1000,
+                        sourceEventId = incoming.sourceEventId(),
+                        dedupeKey = incoming.dedupeKey(),
                     ),
                 )
             }.onFailure { error ->
@@ -453,6 +457,18 @@ public class OneBotGatewayPlugin :
         incomingScope = null
     }
 
+    private fun OneBotIncomingMessage.sourceEventId(): String {
+        return listOf(chatType.name, chatId, messageId).joinToString(":")
+    }
+
+    private fun OneBotIncomingMessage.dedupeKey(): String {
+        return listOf(ONEBOT_PLUGIN_ID, botAccountId.orEmpty(), chatType.name, chatId, messageId).joinToString(":")
+    }
+
+    private fun OneBotIncomingMessage.traceId(): String {
+        return "${ONEBOT_PLUGIN_ID}:${dedupeKey().sha256Hex()}"
+    }
+
     private fun OneBotConfig.endpointLabel(): String {
         return when (mode) {
             OneBotConnectionMode.FORWARD_WS -> enabledConnections()
@@ -461,4 +477,9 @@ public class OneBotGatewayPlugin :
             OneBotConnectionMode.REVERSE_WS -> "$host:$port"
         }
     }
+}
+
+private fun String.sha256Hex(): String {
+    val digest = MessageDigest.getInstance("SHA-256").digest(toByteArray(Charsets.UTF_8))
+    return digest.joinToString("") { byte -> "%02x".format(byte) }
 }

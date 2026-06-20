@@ -1,5 +1,6 @@
 package top.colter.dynamic.onebot
 
+import java.security.MessageDigest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -43,8 +44,11 @@ class OneBotGatewayPluginIncomingTest {
 
             releasePublish.complete(Unit)
             val request = withTimeout(500) { published.await() }
-            assertEquals("message-1", request.traceId)
             assertEquals("message-1", request.replyToMessageId)
+            assertEquals("GROUP:12345:message-1", request.sourceEventId)
+            assertEquals("onebot-gateway:42:GROUP:12345:message-1", request.dedupeKey)
+            assertEquals("onebot-gateway:${request.dedupeKey!!.sha256Hex()}", request.traceId)
+            assertEquals(true, request.receivedAtEpochSeconds != null && request.receivedAtEpochSeconds!! > 0)
             assertEquals("/db status", request.message.text)
         } finally {
             plugin.callPrivate("stopIncomingScope")
@@ -145,4 +149,9 @@ class OneBotGatewayPluginIncomingTest {
         field.isAccessible = true
         field.set(this, value)
     }
+}
+
+private fun String.sha256Hex(): String {
+    val digest = MessageDigest.getInstance("SHA-256").digest(toByteArray(Charsets.UTF_8))
+    return digest.joinToString("") { byte -> "%02x".format(byte) }
 }
