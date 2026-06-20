@@ -14,12 +14,11 @@ import top.colter.dynamic.core.data.PlatformId
 import top.colter.dynamic.core.data.TargetAddress
 import top.colter.dynamic.core.data.TargetKind
 import top.colter.dynamic.core.plugin.AccountRoutedMessageSinkPlugin
-import top.colter.dynamic.core.plugin.CommandResultSendRequest
 import top.colter.dynamic.core.plugin.IncomingMessagePublishRequest
 import top.colter.dynamic.core.plugin.IncomingMessagePublisher
-import top.colter.dynamic.core.plugin.MessageDeliveryRequest
 import top.colter.dynamic.core.plugin.MessageRecallRequest
 import top.colter.dynamic.core.plugin.MessageRecallResult
+import top.colter.dynamic.core.plugin.MessageSendRequest
 import top.colter.dynamic.core.plugin.MessageSendResult
 import top.colter.dynamic.core.plugin.MessageSinkFeature
 import top.colter.dynamic.core.plugin.MessageSinkMediaDeliveryAdvice
@@ -37,7 +36,6 @@ import top.colter.dynamic.core.tools.loggerFor
 
 private val logger = loggerFor<OneBotGatewayPlugin>()
 private val QQ_PLATFORM_ID = PlatformId.of("qq")
-private const val SINK_MESSAGE_ID_SEPARATOR = ""  // ASCII Unit Separator，不可能出现在正常消息 ID 中
 
 public class OneBotGatewayPlugin :
     AccountRoutedMessageSinkPlugin,
@@ -130,7 +128,7 @@ public class OneBotGatewayPlugin :
     }
 
     override suspend fun sendMessage(
-        request: MessageDeliveryRequest,
+        request: MessageSendRequest,
         routeId: String,
     ): MessageSendResult {
         if (!running) return MessageSendResult.failed("OneBot 未运行")
@@ -144,7 +142,11 @@ public class OneBotGatewayPlugin :
         }
 
         val message = request.message
-        val units = OneBotMessageMapper.toSendUnits(message, forwardSenderUin = accountId)
+        val units = OneBotMessageMapper.toSendUnits(
+            message = message,
+            forwardSenderUin = accountId,
+            replyToMessageId = request.replyToMessageId,
+        )
 
         return when (val target = OneBotTarget.fromAddress(request.target)) {
             is OneBotTarget.Group -> sendUnits(
@@ -172,55 +174,6 @@ public class OneBotGatewayPlugin :
         }
     }
 
-    override suspend fun sendCommandResult(
-        request: CommandResultSendRequest,
-        routeId: String,
-    ): MessageSendResult {
-        if (!running) return MessageSendResult.failed("OneBot 未运行")
-        if (!supportsTarget(request.target.address)) {
-            return MessageSendResult.failed("目标平台不是 QQ 或类型不受支持", retryable = false)
-        }
-        val accountId = accountIdFromRoute(routeId)
-            ?: return MessageSendResult.failed("OneBot 路线 ID 无效：$routeId", retryable = false)
-        if (!isAccountReady(accountId)) {
-            return MessageSendResult.failed("OneBot 账号不可用：$accountId")
-        }
-
-        val units = OneBotMessageMapper.toSendUnits(
-            batches = request.chain,
-            forwardSenderUin = accountId,
-            replyToMessageId = request.inReplyTo,
-        )
-        return when (val target = OneBotTarget.fromAddress(request.target.address)) {
-            is OneBotTarget.Group -> sendUnits(
-                routeId = routeId,
-                accountId = accountId,
-                units = units,
-                failureLabel = "OneBot 命令结果发送失败",
-                sendNormal = { payload -> gateway.sendGroupMessage(accountId, target.groupId, payload) },
-                sendForward = { payload ->
-                    gateway.sendGroupForwardMessage(accountId, target.groupId, payload)
-                },
-            )
-            is OneBotTarget.User -> sendUnits(
-                routeId = routeId,
-                accountId = accountId,
-                units = units,
-                failureLabel = "OneBot 命令结果发送失败",
-                sendNormal = { payload -> gateway.sendPrivateMessage(accountId, target.userId, payload) },
-                sendForward = { payload ->
-                    gateway.sendPrivateForwardMessage(accountId, target.userId, payload)
-                },
-            )
-            is OneBotTarget.Unsupported -> {
-                logger.warn {
-                    "跳过 OneBot 命令结果：traceId=${request.inReplyTo}，目标=${request.target.chatType}:${request.target.chatId}，原因=${target.reason}"
-                }
-                MessageSendResult.failed(target.reason, retryable = false)
-            }
-        }
-    }
-
     override suspend fun recallMessage(request: MessageRecallRequest, routeId: String): MessageRecallResult {
         if (!running) return MessageRecallResult.failed("OneBot 未运行")
         if (!supportsTarget(request.target)) {
@@ -231,27 +184,15 @@ public class OneBotGatewayPlugin :
         if (!isAccountReady(accountId)) {
             return MessageRecallResult.failed("OneBot 账号不可用：$accountId")
         }
-        val messageIds = decodeSinkMessageIds(request.sinkMessageId)
-        if (messageIds.isEmpty()) {
+        val messageId = request.sinkMessageId.trim()
+        if (messageId.isBlank()) {
             return MessageRecallResult.failed("OneBot 消息 ID 为空，无法撤回")
         }
-        var recalledAny = false
-        var lastError: Throwable? = null
-        for (messageId in messageIds) {
-            runCatching { gateway.recallMessage(accountId, messageId) }
-                .onSuccess { recalledAny = true }
-                .onFailure { error ->
-                    lastError = error
-                    logger.debug(error) {
-                        "OneBot 消息分段撤回失败：target=${request.target.externalId} sinkMessageId=$messageId routeId=$routeId"
-                    }
-                }
-        }
-        return if (recalledAny) {
-            MessageRecallResult.recalled()
-        } else {
-            MessageRecallResult.failed(lastError?.message ?: "OneBot 消息撤回失败")
-        }
+        return runCatching { gateway.recallMessage(accountId, messageId) }
+            .fold(
+                onSuccess = { MessageRecallResult.recalled() },
+                onFailure = { error -> MessageRecallResult.failed(error.message ?: "OneBot 消息撤回失败") },
+            )
     }
 
     override suspend fun listMessageTargets(kind: TargetKind?): List<MessageTargetCandidate> {
@@ -338,18 +279,6 @@ public class OneBotGatewayPlugin :
         }
     }
 
-    private fun encodeSinkMessageIds(ids: List<String>): String? {
-        val cleaned = ids.mapNotNull { it.trim().takeIf(String::isNotBlank) }
-        return cleaned.takeIf { it.isNotEmpty() }?.joinToString(SINK_MESSAGE_ID_SEPARATOR)
-    }
-
-    private fun decodeSinkMessageIds(encoded: String?): List<String> {
-        return encoded
-            ?.split(SINK_MESSAGE_ID_SEPARATOR)
-            ?.mapNotNull { it.trim().takeIf(String::isNotBlank) }
-            .orEmpty()
-    }
-
     private suspend fun sendUnits(
         routeId: String,
         accountId: String,
@@ -369,18 +298,34 @@ public class OneBotGatewayPlugin :
                 sentCount += 1
             }
             MessageSendResult.sent(
-                sinkMessageId = encodeSinkMessageIds(sinkMessageIds),
-                sinkRouteId = routeId,
-                sinkAccountId = accountId,
-                sinkTransportId = transportId,
-                sinkMessageIds = sinkMessageIds,
+                sinkMessageIds.map { sinkMessageId ->
+                    MessageSendResult.receipt(
+                        sinkMessageId = sinkMessageId,
+                        sinkRouteId = routeId,
+                        sinkAccountId = accountId,
+                        sinkTransportId = transportId,
+                    )
+                },
             )
         }.getOrElse {
-            MessageSendResult.failed(
-                reason = it.message ?: failureLabel,
-                retryable = sentCount == 0,
-                partialSent = sentCount > 0,
-            )
+            if (sentCount > 0) {
+                MessageSendResult.partiallySent(
+                    receipts = sinkMessageIds.map { sinkMessageId ->
+                        MessageSendResult.receipt(
+                            sinkMessageId = sinkMessageId,
+                            sinkRouteId = routeId,
+                            sinkAccountId = accountId,
+                            sinkTransportId = transportId,
+                        )
+                    },
+                    reason = it.message ?: failureLabel,
+                )
+            } else {
+                MessageSendResult.failed(
+                    reason = it.message ?: failureLabel,
+                    retryable = true,
+                )
+            }
         }
     }
 

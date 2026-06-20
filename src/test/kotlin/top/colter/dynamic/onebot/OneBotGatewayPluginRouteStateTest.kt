@@ -4,13 +4,14 @@ import com.google.gson.JsonArray
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlinx.coroutines.runBlocking
-import top.colter.dynamic.core.data.CommandTarget
+import top.colter.dynamic.core.data.Message
 import top.colter.dynamic.core.data.MessageBatch
 import top.colter.dynamic.core.data.MessageContent
 import top.colter.dynamic.core.data.TargetAddress
 import top.colter.dynamic.core.data.TargetKind
-import top.colter.dynamic.core.plugin.CommandResultSendRequest
+import top.colter.dynamic.core.plugin.MessageSendRequest
 import top.colter.dynamic.core.plugin.MessageSendResult
 import top.colter.dynamic.core.plugin.MessageSinkMediaDeliveryAdviceRequest
 import top.colter.dynamic.core.plugin.MessageSinkMediaDeliveryConfidence
@@ -33,20 +34,23 @@ class OneBotGatewayPluginRouteStateTest {
     }
 
     @Test
-    fun `command result should reject invalid target id without sending`() = runBlocking {
+    fun `message send should reject invalid target id without sending`() = runBlocking {
         val plugin = OneBotGatewayPlugin()
         val gateway = FakeGateway(MessageSinkRouteState.READY)
         plugin.setPrivate("gateway", gateway)
         plugin.setPrivate("running", true)
 
-        val result = plugin.sendCommandResult(
-            request = CommandResultSendRequest(
-                target = CommandTarget(
-                    address = TargetAddress.of("qq", TargetKind.GROUP, "bad"),
-                    senderId = "10001",
+        val target = TargetAddress.of("qq", TargetKind.GROUP, "bad")
+        val result = plugin.sendMessage(
+            request = MessageSendRequest(
+                target = target,
+                message = Message(
+                    id = "message-1",
+                    time = 1,
+                    targets = listOf(target),
+                    batches = listOf(MessageBatch(listOf(MessageContent.Text("ok")))),
+                    replyToMessageId = "trace-1",
                 ),
-                chain = listOf(MessageBatch(listOf(MessageContent.Text("ok")))),
-                inReplyTo = "trace-1",
             ),
             routeId = "onebot:qq:42",
         )
@@ -55,6 +59,37 @@ class OneBotGatewayPluginRouteStateTest {
         assertEquals("OneBot 目标 ID 必须是数字：bad", failed.reason)
         assertFalse(failed.retryable)
         assertEquals(0, gateway.sendGroupMessageCalls)
+    }
+
+    @Test
+    fun `message send should return independent receipts for split units`() = runBlocking {
+        val plugin = OneBotGatewayPlugin()
+        val gateway = FakeGateway(MessageSinkRouteState.READY)
+        plugin.setPrivate("gateway", gateway)
+        plugin.setPrivate("running", true)
+        val target = TargetAddress.of("qq", TargetKind.GROUP, "10001")
+
+        val result = plugin.sendMessage(
+            request = MessageSendRequest(
+                target = target,
+                message = Message(
+                    id = "message-split",
+                    time = 1,
+                    targets = listOf(target),
+                    batches = listOf(
+                        MessageBatch(listOf(MessageContent.Text("第一段"))),
+                        MessageBatch(listOf(MessageContent.Text("第二段"))),
+                    ),
+                ),
+            ),
+            routeId = "onebot:qq:42",
+        )
+
+        val sent = assertIs<MessageSendResult.Sent>(result)
+        assertEquals(listOf("group-1", "group-2"), sent.sinkMessageIds)
+        assertEquals(listOf("group-1", "group-2"), sent.receipts.map { it.sinkMessageId })
+        assertEquals("group-1", sent.sinkMessageId)
+        assertEquals("onebot:qq:42", sent.receipts.single { it.sinkMessageId == "group-2" }.sinkRouteId)
     }
 
     @Test
@@ -189,7 +224,7 @@ class OneBotGatewayPluginRouteStateTest {
 
         override suspend fun sendGroupMessage(accountId: String, groupId: Long, message: JsonArray): String? {
             sendGroupMessageCalls += 1
-            return null
+            return "group-$sendGroupMessageCalls"
         }
 
         override suspend fun sendPrivateForwardMessage(
