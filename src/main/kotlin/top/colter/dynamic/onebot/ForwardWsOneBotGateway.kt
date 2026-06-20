@@ -208,10 +208,22 @@ internal class ForwardWsOneBotGateway(
             }
             return account
         }
-        if (current != null && current.state == MessageSinkRouteState.READY) {
+        if (current != null && !routeHealthCheckDue(current.state)) {
+            if (current.state == MessageSinkRouteState.UNAVAILABLE && reconnectSuspendedReason == null) {
+                rebuildClientIfDue()
+            }
             return current
         }
         return refreshRuntimeAccount(currentClient)
+    }
+
+    private fun ForwardConnection.routeHealthCheckDue(state: MessageSinkRouteState): Boolean {
+        val lastCheckedAt = lastHealthCheckAt
+        val interval = when (state) {
+            MessageSinkRouteState.READY -> ONEBOT_ROUTE_READY_HEALTH_CHECK_INTERVAL_MS
+            MessageSinkRouteState.UNAVAILABLE -> ONEBOT_ROUTE_UNAVAILABLE_RETRY_INTERVAL_MS
+        }
+        return lastCheckedAt <= 0 || nowMillis() - lastCheckedAt >= interval
     }
 
     private fun ForwardConnection.refreshRuntimeAccount(client: OneBotClient): OneBotRuntimeAccount? {
@@ -228,6 +240,7 @@ internal class ForwardWsOneBotGateway(
         }.onSuccess {
             val previous = account
             account = it
+            lastHealthCheckAt = nowMillis()
             resetReconnectBackoff()
             if (previous?.accountId != it.accountId) {
                 logger.info { "OneBot 正向连接账号已识别：connectionId=$connectionId，name=${name.ifBlank { "-" }}，accountId=${it.accountId}，accountName=${it.name}" }
@@ -235,6 +248,8 @@ internal class ForwardWsOneBotGateway(
                 logger.info { "OneBot 正向连接账号已恢复：connectionId=$connectionId，accountId=${it.accountId}，accountName=${it.name}" }
             }
         }.onFailure {
+            lastHealthCheckAt = nowMillis()
+            recordUnavailable()
             markUnavailable(it.message ?: "OneBot 登录信息读取失败", it)
         }.getOrNull() ?: account
     }
@@ -361,6 +376,7 @@ internal class ForwardWsOneBotGateway(
 
     private fun ForwardConnection.recordWebSocketOpen() {
         webSocketOpened = true
+        lastHealthCheckAt = 0L
         lastConnectionFailureReason = null
         reconnectSuspendedReason = null
     }
@@ -566,6 +582,8 @@ internal class ForwardWsOneBotGateway(
         var reconnectSuspendedReason: String? = null,
         @Volatile
         var webSocketOpened: Boolean = false,
+        @Volatile
+        var lastHealthCheckAt: Long = 0L,
     )
 
     private class ObservedForwardWsClient(

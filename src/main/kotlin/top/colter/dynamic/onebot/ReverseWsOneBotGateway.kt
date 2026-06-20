@@ -22,12 +22,14 @@ private val logger = loggerFor<ReverseWsOneBotGateway>()
 
 internal class ReverseWsOneBotGateway(
     private val config: OneBotConfig,
+    private val nowMillis: () -> Long = { System.currentTimeMillis() },
 ) : OneBotGateway {
 
     private val activeBots = ConcurrentHashMap<String, Bot>()
     private val activeChannels = ConcurrentHashMap<String, WebSocket>()
     private val activeRemoteAddresses = ConcurrentHashMap<String, InetSocketAddress>()
     private val knownAccounts = ConcurrentHashMap<String, OneBotRuntimeAccount>()
+    private val lastHealthCheckAt = ConcurrentHashMap<String, Long>()
 
     @Volatile
     private var client: OneBotClient? = null
@@ -70,6 +72,7 @@ internal class ReverseWsOneBotGateway(
                     accountId = accountId,
                     state = MessageSinkRouteState.READY,
                 )
+                lastHealthCheckAt.remove(accountId)
 
                 logger.info { "OneBot 反向连接已建立：accountId=$accountId，remote=${conn.remoteSocketAddress}" }
             }
@@ -88,6 +91,7 @@ internal class ReverseWsOneBotGateway(
                     activeChannels.remove(accountId, conn)
                     activeBots.remove(accountId)
                     activeRemoteAddresses.remove(accountId)
+                    lastHealthCheckAt.remove(accountId)
                     knownAccounts.compute(accountId) { _, previous ->
                         (previous ?: OneBotRuntimeAccount(accountId = accountId)).copy(
                             state = MessageSinkRouteState.UNAVAILABLE,
@@ -110,8 +114,86 @@ internal class ReverseWsOneBotGateway(
     }
 
     override suspend fun availableAccounts(): List<OneBotRuntimeAccount> {
-        return knownAccounts.values
-            .sortedBy { it.accountId }
+        return withContext(Dispatchers.IO) {
+            knownAccounts.values
+                .map { account -> refreshRouteHealthIfDue(account) }
+                .sortedBy { it.accountId }
+        }
+    }
+
+    private fun refreshRouteHealthIfDue(account: OneBotRuntimeAccount): OneBotRuntimeAccount {
+        if (!routeHealthCheckDue(account)) {
+            return account
+        }
+        return refreshRouteHealth(account)
+    }
+
+    private fun routeHealthCheckDue(account: OneBotRuntimeAccount): Boolean {
+        val lastCheckedAt = lastHealthCheckAt[account.accountId] ?: return true
+        val interval = when (account.state) {
+            MessageSinkRouteState.READY -> ONEBOT_ROUTE_READY_HEALTH_CHECK_INTERVAL_MS
+            MessageSinkRouteState.UNAVAILABLE -> ONEBOT_ROUTE_UNAVAILABLE_RETRY_INTERVAL_MS
+        }
+        return nowMillis() - lastCheckedAt >= interval
+    }
+
+    private fun refreshRouteHealth(account: OneBotRuntimeAccount): OneBotRuntimeAccount {
+        val accountId = account.accountId
+        val channel = activeChannels[accountId]
+        val bot = activeBots[accountId]
+        if (channel == null || !channel.isOpen || bot == null) {
+            lastHealthCheckAt[accountId] = nowMillis()
+            return markAccountUnavailable(accountId, "OneBot 反向连接未连接")
+        }
+
+        return runCatching {
+            val info = bot.getLoginInfo().requireDataOk("get_login_info")
+            val runtimeAccountId = info.userId.takeIf { it > 0 }?.toString()
+                ?: error("OneBot 登录信息缺少有效 user_id")
+            if (runtimeAccountId != accountId) {
+                error("OneBot 登录账号与反向连接 selfId 不一致：selfId=$accountId，loginUserId=$runtimeAccountId")
+            }
+            OneBotRuntimeAccount(
+                accountId = accountId,
+                name = info.nickname?.takeIf { it.isNotBlank() } ?: account.name,
+                state = MessageSinkRouteState.READY,
+            )
+        }.onSuccess { refreshed ->
+            val previous = knownAccounts.put(accountId, refreshed)
+            lastHealthCheckAt[accountId] = nowMillis()
+            if (previous?.state != MessageSinkRouteState.READY) {
+                logger.info { "OneBot 反向连接账号已恢复：accountId=$accountId，accountName=${refreshed.name}" }
+            }
+        }.onFailure { error ->
+            lastHealthCheckAt[accountId] = nowMillis()
+            markAccountUnavailable(accountId, error.message ?: "OneBot 登录信息读取失败", error)
+        }.getOrDefault(knownAccounts[accountId] ?: account)
+    }
+
+    private fun markAccountUnavailable(
+        accountId: String,
+        reason: String,
+        error: Throwable? = null,
+    ): OneBotRuntimeAccount {
+        val previous = knownAccounts[accountId]
+        val next = (previous ?: OneBotRuntimeAccount(accountId = accountId)).copy(
+            state = MessageSinkRouteState.UNAVAILABLE,
+        )
+        knownAccounts[accountId] = next
+        if (previous?.state != MessageSinkRouteState.UNAVAILABLE) {
+            if (error == null) {
+                logger.warn { "OneBot 反向连接账号不可用：accountId=$accountId，原因=$reason" }
+            } else {
+                logger.warn(error) { "OneBot 反向连接账号不可用：accountId=$accountId，原因=$reason" }
+            }
+        } else {
+            if (error == null) {
+                logger.debug { "OneBot 反向连接账号仍不可用：accountId=$accountId，原因=$reason" }
+            } else {
+                logger.debug(error) { "OneBot 反向连接账号仍不可用：accountId=$accountId，原因=$reason" }
+            }
+        }
+        return next
     }
 
     override suspend fun implementationInfo(accountId: String): OneBotImplementationInfo {
@@ -238,6 +320,7 @@ internal class ReverseWsOneBotGateway(
             }
             activeChannels.clear()
             activeRemoteAddresses.clear()
+            lastHealthCheckAt.clear()
             knownAccounts.replaceAll { _, account -> account.copy(state = MessageSinkRouteState.UNAVAILABLE) }
             runCatching {
                 server?.stop(1000, "shutdown")

@@ -12,6 +12,8 @@ import top.colter.dynamic.core.data.IncomingMessageSegment
 import top.colter.dynamic.core.plugin.MessageSinkRouteState
 
 internal const val ONEBOT_PLUGIN_ID: String = "onebot-gateway"
+internal const val ONEBOT_ROUTE_READY_HEALTH_CHECK_INTERVAL_MS: Long = 60_000L
+internal const val ONEBOT_ROUTE_UNAVAILABLE_RETRY_INTERVAL_MS: Long = 5_000L
 
 public data class OneBotIncomingMessage(
     val chatType: OneBotChatType,
