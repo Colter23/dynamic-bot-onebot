@@ -8,7 +8,7 @@ plugins {
 apply(from = "gradle/dynamic-plugin-fatjar.gradle.kts")
 
 group = "top.colter.dynamic"
-version = "0.0.4"
+version = "0.0.5"
 
 repositories {
     mavenLocal()
@@ -22,7 +22,7 @@ configurations.named("testRuntimeClasspath") {
 
 dependencies {
     val coroutinesVersion = "1.11.0"
-    val coreVersion = "0.0.1"
+    val coreVersion = "0.0.2"
     val jacksonVersion = "2.22.0"
     val kotlinLoggingVersion = "8.0.4"
     val log4jVersion = "2.26.0"
