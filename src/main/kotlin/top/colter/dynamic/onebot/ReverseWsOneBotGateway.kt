@@ -239,14 +239,14 @@ internal class ReverseWsOneBotGateway(
         }
     }
 
-    override suspend fun sendPrivateMessage(accountId: String, userId: Long, message: JsonArray): String? {
+    override suspend fun sendPrivateMessage(accountId: String, userId: Long, message: JsonArray): OneBotSendOutcome {
         return withContext(Dispatchers.IO) {
             val action = requireBot(accountId).sendPrivateMsg(userId, message, false)
             action.requireSendAccepted("send_private_msg", userId)
         }
     }
 
-    override suspend fun sendGroupMessage(accountId: String, groupId: Long, message: JsonArray): String? {
+    override suspend fun sendGroupMessage(accountId: String, groupId: Long, message: JsonArray): OneBotSendOutcome {
         return withContext(Dispatchers.IO) {
             val action = requireBot(accountId).sendGroupMsg(groupId, message, false)
             action.requireSendAccepted("send_group_msg", groupId)
@@ -257,7 +257,7 @@ internal class ReverseWsOneBotGateway(
         accountId: String,
         userId: Long,
         messages: List<Map<String, Any>>,
-    ): String? {
+    ): OneBotSendOutcome {
         return withContext(Dispatchers.IO) {
             val action = requireBot(accountId).sendPrivateForwardMsgRaw(userId, messages)
             action.requireSendAccepted("send_private_forward_msg", userId)
@@ -268,7 +268,7 @@ internal class ReverseWsOneBotGateway(
         accountId: String,
         groupId: Long,
         messages: List<Map<String, Any>>,
-    ): String? {
+    ): OneBotSendOutcome {
         return withContext(Dispatchers.IO) {
             val action = requireBot(accountId).sendGroupForwardMsgRaw(groupId, messages)
             action.requireSendAccepted("send_group_forward_msg", groupId)

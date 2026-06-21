@@ -15,6 +15,7 @@ import kotlinx.coroutines.withTimeout
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -85,10 +86,12 @@ class OneBotGatewayTest {
     }
 
     @Test
-    fun `accept no response as sent`() {
+    fun `missing send response should be uncertain`() {
         val action: ActionData<*>? = null
 
-        action.requireSendAccepted("send_private_msg", 123)
+        val result = action.requireSendAccepted("send_private_msg", 123)
+
+        assertIs<OneBotSendOutcome.Uncertain>(result)
     }
 
     @Test
@@ -97,7 +100,9 @@ class OneBotGatewayTest {
             status = "ok"
         }
 
-        action.requireSendAccepted("send_private_msg", 123)
+        val result = action.requireSendAccepted("send_private_msg", 123)
+
+        assertIs<OneBotSendOutcome.Accepted>(result)
     }
 
     @Test
@@ -107,9 +112,9 @@ class OneBotGatewayTest {
             data = MsgId(321)
         }
 
-        val messageId = action.requireSendAccepted("send_private_msg", 123)
+        val result = action.requireSendAccepted("send_private_msg", 123)
 
-        assertEquals("321", messageId)
+        assertEquals("321", assertIs<OneBotSendOutcome.Accepted>(result).sinkMessageId)
     }
 
     @Test
@@ -119,9 +124,9 @@ class OneBotGatewayTest {
             data = mapOf("message_id" to 321.0)
         }
 
-        val messageId = action.requireSendAccepted("send_group_forward_msg", 123)
+        val result = action.requireSendAccepted("send_group_forward_msg", 123)
 
-        assertEquals("321", messageId)
+        assertEquals("321", assertIs<OneBotSendOutcome.Accepted>(result).sinkMessageId)
     }
 
     @Test
@@ -131,9 +136,9 @@ class OneBotGatewayTest {
             data = JsonObject().apply { addProperty("message_id", 321) }
         }
 
-        val messageId = action.requireSendAccepted("send_group_forward_msg", 123)
+        val result = action.requireSendAccepted("send_group_forward_msg", 123)
 
-        assertEquals("321", messageId)
+        assertEquals("321", assertIs<OneBotSendOutcome.Accepted>(result).sinkMessageId)
     }
 
     @Test
@@ -163,12 +168,14 @@ class OneBotGatewayTest {
     }
 
     @Test
-    fun `accept explicit no response status as sent`() {
+    fun `explicit no response send status should be uncertain`() {
         val action = ActionData<Any>().apply {
             status = "no_response"
         }
 
-        action.requireSendAccepted("send_private_msg", 123)
+        val result = action.requireSendAccepted("send_private_msg", 123)
+
+        assertIs<OneBotSendOutcome.Uncertain>(result)
     }
 
     @Test

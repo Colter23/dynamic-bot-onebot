@@ -76,6 +76,11 @@ public data class OneBotDownloadProbeResult(
     val reason: String = "",
 )
 
+public sealed interface OneBotSendOutcome {
+    public data class Accepted(val sinkMessageId: String? = null) : OneBotSendOutcome
+    public data class Uncertain(val reason: String) : OneBotSendOutcome
+}
+
 public interface OneBotGateway {
     public fun connect(onIncomingMessage: (OneBotIncomingMessage) -> Unit)
     public suspend fun availableAccounts(): List<OneBotRuntimeAccount>
@@ -84,18 +89,18 @@ public interface OneBotGateway {
         OneBotConnectionHints()
     public suspend fun probeDownload(accountId: String, uri: String): OneBotDownloadProbeResult =
         OneBotDownloadProbeResult(available = false, reason = "OneBot 网关不支持媒体探测")
-    public suspend fun sendPrivateMessage(accountId: String, userId: Long, message: JsonArray): String?
-    public suspend fun sendGroupMessage(accountId: String, groupId: Long, message: JsonArray): String?
+    public suspend fun sendPrivateMessage(accountId: String, userId: Long, message: JsonArray): OneBotSendOutcome
+    public suspend fun sendGroupMessage(accountId: String, groupId: Long, message: JsonArray): OneBotSendOutcome
     public suspend fun sendPrivateForwardMessage(
         accountId: String,
         userId: Long,
         messages: List<Map<String, Any>>,
-    ): String?
+    ): OneBotSendOutcome
     public suspend fun sendGroupForwardMessage(
         accountId: String,
         groupId: Long,
         messages: List<Map<String, Any>>,
-    ): String?
+    ): OneBotSendOutcome
     public suspend fun recallMessage(accountId: String, messageId: String)
     public suspend fun listGroups(accountId: String): List<OneBotTargetCandidate>
     public suspend fun listFriends(accountId: String): List<OneBotTargetCandidate>
@@ -119,21 +124,29 @@ public class NoopOneBotGateway : OneBotGateway {
     override suspend fun probeDownload(accountId: String, uri: String): OneBotDownloadProbeResult =
         OneBotDownloadProbeResult(available = false, reason = "OneBot 未运行")
 
-    override suspend fun sendPrivateMessage(accountId: String, userId: Long, message: JsonArray): String? = null
+    override suspend fun sendPrivateMessage(
+        accountId: String,
+        userId: Long,
+        message: JsonArray,
+    ): OneBotSendOutcome = OneBotSendOutcome.Uncertain("OneBot 未运行，未收到发送响应")
 
-    override suspend fun sendGroupMessage(accountId: String, groupId: Long, message: JsonArray): String? = null
+    override suspend fun sendGroupMessage(
+        accountId: String,
+        groupId: Long,
+        message: JsonArray,
+    ): OneBotSendOutcome = OneBotSendOutcome.Uncertain("OneBot 未运行，未收到发送响应")
 
     override suspend fun sendPrivateForwardMessage(
         accountId: String,
         userId: Long,
         messages: List<Map<String, Any>>,
-    ): String? = null
+    ): OneBotSendOutcome = OneBotSendOutcome.Uncertain("OneBot 未运行，未收到发送响应")
 
     override suspend fun sendGroupForwardMessage(
         accountId: String,
         groupId: Long,
         messages: List<Map<String, Any>>,
-    ): String? = null
+    ): OneBotSendOutcome = OneBotSendOutcome.Uncertain("OneBot 未运行，未收到发送响应")
 
     override suspend fun recallMessage(accountId: String, messageId: String) {
     }
@@ -164,17 +177,17 @@ internal fun parseRecallMessageId(messageId: String): Int {
     return numeric.toInt()
 }
 
-internal fun ActionData<*>?.requireSendAccepted(action: String, targetId: Long): String? {
+internal fun ActionData<*>?.requireSendAccepted(action: String, targetId: Long): OneBotSendOutcome {
     if (this == null) {
-        return null
+        return OneBotSendOutcome.Uncertain("OneBot 发送状态未知：action=$action，targetId=$targetId，原因=未收到响应")
     }
     if (status.equals("no_response", ignoreCase = true)) {
-        return null
+        return OneBotSendOutcome.Uncertain("OneBot 发送状态未知：action=$action，targetId=$targetId，status=$status")
     }
     if (!status.equals("ok", ignoreCase = true)) {
         error("OneBot 发送失败：action=$action，targetId=$targetId，status=$status，retCode=$retCode")
     }
-    return data.extractMessageId()
+    return OneBotSendOutcome.Accepted(data.extractMessageId())
 }
 
 internal fun Bot.sendGroupForwardMsgRaw(groupId: Long, messages: List<Map<String, Any>>): ActionData<*>? {

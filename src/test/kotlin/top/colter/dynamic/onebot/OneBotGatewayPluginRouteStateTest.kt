@@ -93,6 +93,129 @@ class OneBotGatewayPluginRouteStateTest {
     }
 
     @Test
+    fun `message send should return uncertain when onebot has no response before accepted unit`() = runBlocking {
+        val plugin = OneBotGatewayPlugin()
+        val gateway = FakeGateway(MessageSinkRouteState.READY, groupSendOutcomes = mutableListOf(OneBotSendOutcome.Uncertain("发送响应超时")))
+        plugin.setPrivate("gateway", gateway)
+        plugin.setPrivate("running", true)
+        val target = TargetAddress.of("qq", TargetKind.GROUP, "10001")
+
+        val result = plugin.sendMessage(
+            request = MessageSendRequest(
+                target = target,
+                message = Message(
+                    id = "message-unknown",
+                    time = 1,
+                    targets = listOf(target),
+                    batches = listOf(MessageBatch(listOf(MessageContent.Text("第一段")))),
+                ),
+            ),
+            routeId = "onebot:qq:42",
+        )
+
+        val uncertain = assertIs<MessageSendResult.Uncertain>(result)
+        assertEquals("发送响应超时", uncertain.reason)
+        assertEquals("onebot:qq:42", uncertain.sinkRouteId)
+        assertEquals("42", uncertain.sinkAccountId)
+    }
+
+    @Test
+    fun `message send should treat napcat send timeout exception as uncertain`() = runBlocking {
+        val plugin = OneBotGatewayPlugin()
+        val gateway = FakeGateway(
+            state = MessageSinkRouteState.READY,
+            groupSendError = IllegalStateException(
+                "Timeout: NTEvent serviceAndMethod:NodeIKernelMsgService/sendMsg " +
+                    "ListenerName:NodeIKernelMsgListener/onMsgInfoListUpdate EventRet:{}",
+            ),
+        )
+        plugin.setPrivate("gateway", gateway)
+        plugin.setPrivate("running", true)
+        val target = TargetAddress.of("qq", TargetKind.GROUP, "10001")
+
+        val result = plugin.sendMessage(
+            request = MessageSendRequest(
+                target = target,
+                message = Message(
+                    id = "message-napcat-timeout",
+                    time = 1,
+                    targets = listOf(target),
+                    batches = listOf(MessageBatch(listOf(MessageContent.Text("第一段")))),
+                ),
+            ),
+            routeId = "onebot:qq:42",
+        )
+
+        val uncertain = assertIs<MessageSendResult.Uncertain>(result)
+        assertEquals("onebot:qq:42", uncertain.sinkRouteId)
+        assertEquals("42", uncertain.sinkAccountId)
+    }
+
+    @Test
+    fun `message send should keep sendmsg business failure as failed`() = runBlocking {
+        val plugin = OneBotGatewayPlugin()
+        val gateway = FakeGateway(
+            state = MessageSinkRouteState.READY,
+            groupSendError = IllegalStateException("NodeIKernelMsgService/sendMsg 返回失败：retCode=1400"),
+        )
+        plugin.setPrivate("gateway", gateway)
+        plugin.setPrivate("running", true)
+        val target = TargetAddress.of("qq", TargetKind.GROUP, "10001")
+
+        val result = plugin.sendMessage(
+            request = MessageSendRequest(
+                target = target,
+                message = Message(
+                    id = "message-sendmsg-failed",
+                    time = 1,
+                    targets = listOf(target),
+                    batches = listOf(MessageBatch(listOf(MessageContent.Text("第一段")))),
+                ),
+            ),
+            routeId = "onebot:qq:42",
+        )
+
+        val failed = assertIs<MessageSendResult.Failed>(result)
+        assertFalse(failed.retryable)
+        assertEquals("NodeIKernelMsgService/sendMsg 返回失败：retCode=1400", failed.reason)
+    }
+
+    @Test
+    fun `message send should return partial when later split unit is uncertain`() = runBlocking {
+        val plugin = OneBotGatewayPlugin()
+        val gateway = FakeGateway(
+            state = MessageSinkRouteState.READY,
+            groupSendOutcomes = mutableListOf(
+                OneBotSendOutcome.Accepted("group-1"),
+                OneBotSendOutcome.Uncertain("第二段响应超时"),
+            ),
+        )
+        plugin.setPrivate("gateway", gateway)
+        plugin.setPrivate("running", true)
+        val target = TargetAddress.of("qq", TargetKind.GROUP, "10001")
+
+        val result = plugin.sendMessage(
+            request = MessageSendRequest(
+                target = target,
+                message = Message(
+                    id = "message-partial-unknown",
+                    time = 1,
+                    targets = listOf(target),
+                    batches = listOf(
+                        MessageBatch(listOf(MessageContent.Text("第一段"))),
+                        MessageBatch(listOf(MessageContent.Text("第二段"))),
+                    ),
+                ),
+            ),
+            routeId = "onebot:qq:42",
+        )
+
+        val partial = assertIs<MessageSendResult.PartiallySent>(result)
+        assertEquals("第二段响应超时", partial.reason)
+        assertEquals(listOf("group-1"), partial.receipts.map { it.sinkMessageId })
+    }
+
+    @Test
     fun `napcat local probe should use download_file`() = runBlocking {
         val plugin = OneBotGatewayPlugin()
         val gateway = FakeGateway(
@@ -196,6 +319,8 @@ class OneBotGatewayPluginRouteStateTest {
         private val implementationInfo: OneBotImplementationInfo = OneBotImplementationInfo(),
         private val connectionHints: OneBotConnectionHints = OneBotConnectionHints(),
         private val downloadProbeResult: OneBotDownloadProbeResult = OneBotDownloadProbeResult(available = false),
+        private val groupSendOutcomes: MutableList<OneBotSendOutcome> = mutableListOf(),
+        private val groupSendError: Throwable? = null,
     ) : OneBotGateway {
         var sendGroupMessageCalls: Int = 0
         val downloadProbeCalls: MutableList<String> = mutableListOf()
@@ -220,24 +345,33 @@ class OneBotGatewayPluginRouteStateTest {
             return downloadProbeResult
         }
 
-        override suspend fun sendPrivateMessage(accountId: String, userId: Long, message: JsonArray): String? = null
+        override suspend fun sendPrivateMessage(
+            accountId: String,
+            userId: Long,
+            message: JsonArray,
+        ): OneBotSendOutcome = OneBotSendOutcome.Accepted()
 
-        override suspend fun sendGroupMessage(accountId: String, groupId: Long, message: JsonArray): String? {
+        override suspend fun sendGroupMessage(accountId: String, groupId: Long, message: JsonArray): OneBotSendOutcome {
             sendGroupMessageCalls += 1
-            return "group-$sendGroupMessageCalls"
+            groupSendError?.let { throw it }
+            return if (groupSendOutcomes.isEmpty()) {
+                OneBotSendOutcome.Accepted("group-$sendGroupMessageCalls")
+            } else {
+                groupSendOutcomes.removeAt(0)
+            }
         }
 
         override suspend fun sendPrivateForwardMessage(
             accountId: String,
             userId: Long,
             messages: List<Map<String, Any>>,
-        ): String? = null
+        ): OneBotSendOutcome = OneBotSendOutcome.Accepted()
 
         override suspend fun sendGroupForwardMessage(
             accountId: String,
             groupId: Long,
             messages: List<Map<String, Any>>,
-        ): String? = null
+        ): OneBotSendOutcome = OneBotSendOutcome.Accepted()
 
         override suspend fun recallMessage(accountId: String, messageId: String) {
         }

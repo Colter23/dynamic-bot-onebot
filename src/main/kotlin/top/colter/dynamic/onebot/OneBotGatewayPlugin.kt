@@ -285,49 +285,89 @@ public class OneBotGatewayPlugin :
         accountId: String,
         units: List<OneBotSendUnit>,
         failureLabel: String,
-        sendNormal: suspend (JsonArray) -> String?,
-        sendForward: suspend (List<Map<String, Any>>) -> String?,
+        sendNormal: suspend (JsonArray) -> OneBotSendOutcome,
+        sendForward: suspend (List<Map<String, Any>>) -> OneBotSendOutcome,
     ): MessageSendResult {
-        var sentCount = 0
+        var acceptedCount = 0
         val sinkMessageIds = mutableListOf<String>()
         return runCatching {
             units.forEach { unit ->
-                when (unit) {
-                    is OneBotSendUnit.Normal -> sendNormal(unit.message)?.let { sinkMessageIds += it }
-                    is OneBotSendUnit.Forward -> sendForward(unit.messages)?.let { sinkMessageIds += it }
+                val outcome = when (unit) {
+                    is OneBotSendUnit.Normal -> sendNormal(unit.message)
+                    is OneBotSendUnit.Forward -> sendForward(unit.messages)
                 }
-                sentCount += 1
-            }
-            MessageSendResult.sent(
-                sinkMessageIds.map { sinkMessageId ->
-                    MessageSendResult.receipt(
-                        sinkMessageId = sinkMessageId,
-                        sinkRouteId = routeId,
-                        sinkAccountId = accountId,
-                        sinkTransportId = transportId,
-                    )
-                },
-            )
-        }.getOrElse {
-            if (sentCount > 0) {
-                MessageSendResult.partiallySent(
-                    receipts = sinkMessageIds.map { sinkMessageId ->
-                        MessageSendResult.receipt(
-                            sinkMessageId = sinkMessageId,
+                when (outcome) {
+                    is OneBotSendOutcome.Accepted -> {
+                        outcome.sinkMessageId?.let { sinkMessageIds += it }
+                        acceptedCount += 1
+                    }
+                    is OneBotSendOutcome.Uncertain -> {
+                        if (acceptedCount > 0) {
+                            return MessageSendResult.partiallySent(
+                                receipts = sinkMessageIds.toReceipts(routeId, accountId),
+                                reason = outcome.reason,
+                            )
+                        }
+                        return MessageSendResult.uncertain(
+                            reason = outcome.reason,
                             sinkRouteId = routeId,
                             sinkAccountId = accountId,
                             sinkTransportId = transportId,
                         )
-                    },
-                    reason = it.message ?: failureLabel,
+                    }
+                }
+            }
+            MessageSendResult.sent(sinkMessageIds.toReceipts(routeId, accountId))
+        }.getOrElse {
+            val uncertainReason = it.oneBotSendUncertainReason()
+            if (acceptedCount > 0) {
+                MessageSendResult.partiallySent(
+                    receipts = sinkMessageIds.toReceipts(routeId, accountId),
+                    reason = uncertainReason ?: it.message ?: failureLabel,
+                )
+            } else if (uncertainReason != null) {
+                MessageSendResult.uncertain(
+                    reason = uncertainReason,
+                    sinkRouteId = routeId,
+                    sinkAccountId = accountId,
+                    sinkTransportId = transportId,
                 )
             } else {
                 MessageSendResult.failed(
                     reason = it.message ?: failureLabel,
-                    retryable = true,
+                    retryable = false,
                 )
             }
         }
+    }
+
+    private fun List<String>.toReceipts(routeId: String, accountId: String) = map { sinkMessageId ->
+        MessageSendResult.receipt(
+            sinkMessageId = sinkMessageId,
+            sinkRouteId = routeId,
+            sinkAccountId = accountId,
+            sinkTransportId = transportId,
+        )
+    }
+
+    private fun Throwable.oneBotSendUncertainReason(): String? {
+        val text = diagnosticText()
+        val normalized = text.lowercase()
+        val uncertain = listOf(
+            "timeout",
+            "timed out",
+            "no_response",
+            "no response",
+            "未收到响应",
+            "超时",
+            "发送状态未知",
+        ).any { it in normalized }
+        if (!uncertain) return null
+        return text
+            .replace(Regex("\\s+"), " ")
+            .trim()
+            .ifBlank { "OneBot 发送状态未知" }
+            .take(MAX_SEND_UNCERTAIN_REASON_LENGTH)
     }
 
     private suspend fun listTargetsForAccounts(
@@ -483,3 +523,16 @@ private fun String.sha256Hex(): String {
     val digest = MessageDigest.getInstance("SHA-256").digest(toByteArray(Charsets.UTF_8))
     return digest.joinToString("") { byte -> "%02x".format(byte) }
 }
+
+private fun Throwable.diagnosticText(): String {
+    return generateSequence(this) { it.cause }
+        .joinToString(" | ") { throwable ->
+            listOfNotNull(
+                throwable.javaClass.simpleName,
+                throwable.message?.takeIf { it.isNotBlank() },
+                throwable.localizedMessage?.takeIf { it.isNotBlank() && it != throwable.message },
+            ).joinToString(": ")
+        }
+}
+
+private const val MAX_SEND_UNCERTAIN_REASON_LENGTH: Int = 300
