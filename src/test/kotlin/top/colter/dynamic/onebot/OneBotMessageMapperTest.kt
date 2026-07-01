@@ -83,6 +83,26 @@ class OneBotMessageMapperTest {
     }
 
     @Test
+    fun `format line break before at all`() {
+        val message = demoMessage(
+            listOf(
+                MessageContent.Text("tail"),
+                MessageContent.Text("\n"),
+                MessageContent.MentionAll(fallbackText = ""),
+            ),
+        )
+
+        val segments = OneBotMessageMapper.toArrayMessage(message)
+
+        assertEquals(MsgType.text, segments[0].type)
+        assertEquals("tail", segments[0].data["text"])
+        assertEquals(MsgType.text, segments[1].type)
+        assertEquals("\n", segments[1].data["text"])
+        assertEquals(MsgType.at, segments[2].type)
+        assertEquals("all", segments[2].data["qq"])
+    }
+
+    @Test
     fun `format empty batch as non empty text message`() {
         val segments = OneBotMessageMapper.toArrayMessage(listOf(MessageBatch(emptyList())))
 

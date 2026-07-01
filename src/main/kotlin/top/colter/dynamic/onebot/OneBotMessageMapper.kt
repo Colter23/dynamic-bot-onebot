@@ -189,7 +189,7 @@ public object OneBotMessageMapper {
     }
 
     private fun MutableList<ArrayMsg>.addText(value: String) {
-        if (value.isNotBlank()) {
+        if (value.isNotBlank() || value.any { it == '\n' || it == '\r' }) {
             add(text(value))
         }
     }
