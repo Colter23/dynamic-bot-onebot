@@ -118,6 +118,13 @@ internal class OneBotIncomingListener(
                 messageId = values["id"].orEmpty(),
                 rawPayload = segmentRaw,
             )
+            MsgType.json -> OneBotJsonCardLinkExtractor.extract(
+                payload = values["data"],
+                rawPayload = segmentRaw,
+            ) ?: IncomingMessageSegment.Unknown(
+                segmentType = type.name,
+                rawPayload = segmentRaw,
+            )
             else -> IncomingMessageSegment.Unknown(
                 segmentType = type.name,
                 rawPayload = segmentRaw,
@@ -234,6 +241,13 @@ internal class OneBotIncomingListener(
             )
             "reply" -> IncomingMessageSegment.Reply(
                 messageId = data["id"].orEmpty(),
+                rawPayload = raw,
+            )
+            "json" -> OneBotJsonCardLinkExtractor.extract(
+                payload = data["data"],
+                rawPayload = raw,
+            ) ?: IncomingMessageSegment.Unknown(
+                segmentType = type,
                 rawPayload = raw,
             )
             else -> IncomingMessageSegment.Unknown(

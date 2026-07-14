@@ -172,6 +172,44 @@ class OneBotIncomingListenerTest {
     }
 
     @Test
+    fun `json card should map its primary navigation link`() {
+        var captured: OneBotIncomingMessage? = null
+        val listener = OneBotIncomingListener(onIncomingMessage = { captured = it })
+        val card = """
+            {"app":"com.tencent.miniapp_01","url":"https://example.com/fallback","meta":{"detail_1":{"title":"测试视频","qqdocurl":"https://b23.tv/demo","url":"https://www.bilibili.com/video/BV1xx411c7mD"}}}
+        """.trimIndent()
+
+        listener.onGroupMessage(
+            GroupMessageEvent().apply {
+                groupId = 1L
+                userId = 2L
+                arrayMsg = listOf(segment(MsgType.json, "data" to card))
+            }
+        )
+
+        val link = assertIs<IncomingMessageSegment.Link>(requireNotNull(captured).segments.single())
+        assertEquals("https://b23.tv/demo", link.url)
+        assertEquals("测试视频", link.title)
+        assertTrue(link.rawPayload.orEmpty().contains("https://b23.tv/demo"))
+    }
+
+    @Test
+    fun `json card without a navigation link should remain unknown`() {
+        var captured: OneBotIncomingMessage? = null
+        val listener = OneBotIncomingListener(onIncomingMessage = { captured = it })
+
+        listener.onGroupMessage(
+            GroupMessageEvent().apply {
+                groupId = 1L
+                userId = 2L
+                arrayMsg = listOf(segment(MsgType.json, "data" to "{\"meta\":{\"detail_1\":{\"title\":\"无链接\"}}}"))
+            }
+        )
+
+        assertEquals("json", assertIs<IncomingMessageSegment.Unknown>(requireNotNull(captured).segments.single()).segmentType)
+    }
+
+    @Test
     fun `raw cq message should map known and unknown incoming segments`() {
         var captured: OneBotIncomingMessage? = null
         val listener = OneBotIncomingListener(onIncomingMessage = { captured = it })
