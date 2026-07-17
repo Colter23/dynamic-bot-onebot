@@ -13,7 +13,6 @@ version = "0.0.7"
 repositories {
     mavenLocal()
     mavenCentral()
-    maven(url = "https://maven.nova-committee.cn/releases/")
 }
 
 configurations.named("testRuntimeClasspath") {
@@ -24,6 +23,7 @@ dependencies {
     val coroutinesVersion = "1.11.0"
     val coreVersion = "0.0.4"
     val jacksonVersion = "2.22.0"
+    val guavaVersion = "33.4.8-jre"
     val kotlinLoggingVersion = "8.0.4"
     val log4jVersion = "2.26.0"
     val slf4jVersion = "2.0.18"
@@ -31,7 +31,8 @@ dependencies {
     compileOnly("top.colter.dynamic:dynamic-bot-core:$coreVersion")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:$coroutinesVersion")
 
-    implementation("cn.evole.onebot:OneBot-Client:0.4.3")
+    implementation(files("third-party/onebot-client/OneBot-Client-0.4.3.jar"))
+    implementation("com.google.guava:guava:$guavaVersion")
     compileOnly("io.github.oshai:kotlin-logging-jvm:$kotlinLoggingVersion")
     compileOnly("org.apache.logging.log4j:log4j-api:$log4jVersion")
     implementation("com.google.code.gson:gson:2.14.0")
