@@ -21,7 +21,7 @@ configurations.named("testRuntimeClasspath") {
 
 dependencies {
     val coroutinesVersion = "1.11.0"
-    val coreVersion = "0.0.4"
+    val coreVersion = "0.0.5"
     val jacksonVersion = "2.22.0"
     val guavaVersion = "33.4.8-jre"
     val kotlinLoggingVersion = "8.0.4"
