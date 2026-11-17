@@ -2,6 +2,7 @@ package top.colter.dynamic.onebot
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import top.colter.dynamic.core.data.IncomingMessageSegment
 import top.colter.dynamic.core.data.TargetKind
 
@@ -28,6 +29,8 @@ class OneBotCommandMapperTest {
         assertEquals("42", message.botAccountId)
         assertEquals(setOf("42"), message.mentions)
         assertEquals("/db status", message.text)
+        assertNull(message.senderName)
+        assertNull(message.senderAvatar)
     }
 
     @Test
